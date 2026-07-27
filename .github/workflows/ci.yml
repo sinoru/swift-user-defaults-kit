@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apple:
+    name: macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: swift --version
+      - name: Build
+        run: swift build --build-tests
+      - name: Test
+        run: swift test
+      # The trait set is part of the package's public interface, so the configuration a consumer
+      # gets by opting out has to keep compiling.
+      - name: Build without default traits
+        run: swift build --disable-default-traits
+
+  linux:
+    name: Linux
+    runs-on: ubuntu-latest
+    container: swift:6.3
+    # Not green yet, and this job is what settles it. `UserDefaultsKitCore` reaches for
+    # Objective-C KVO, which swift-corelibs-foundation has no runtime for, and whether
+    # NSKeyedArchiver's `encodeEncodable`/`decodeDecodable` exist there has never been checked
+    # against a Linux toolchain. Until non-Darwin support is either implemented or dropped, this
+    # reports without failing the workflow — which is the honest state, now that the manifest no
+    # longer decides the question from whichever machine happened to run it.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: swift --version
+      - name: Build
+        run: swift build --build-tests
+      - name: Test
+        run: swift test
