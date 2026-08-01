@@ -46,15 +46,26 @@ final class UserDefaultsEncodableTests: UserDefaultsTestCase {
         #expect(!(try #require(userDefaults.object(forKey: "string")) is Data))
     }
 
+    // The payoff of encoding into a property list instead of archiving: the struct lands as a
+    // dictionary and the `String`-backed enum as a string, so `defaults(1)` and every other reader
+    // of the domain sees the value rather than an opaque blob. An archive would satisfy the round
+    // trip just as well and fail every expectation below.
     @Test
-    func archivesValuesOutsideThePropertyListTypes() throws {
+    func encodesValuesOutsideThePropertyListTypesAsPropertyLists() throws {
         userDefaults["profile"] = Profile(name: "Jaehong", age: 30, tags: ["swift"])
         userDefaults["theme"] = Theme.dark
 
-        #expect(try #require(userDefaults.object(forKey: "profile")) is Data)
-        #expect(try #require(userDefaults.object(forKey: "theme")) is Data)
+        #expect(!(try #require(userDefaults.object(forKey: "profile")) is Data))
+        #expect(!(try #require(userDefaults.object(forKey: "theme")) is Data))
+
+        #expect(userDefaults.string(forKey: "theme") == "dark")
+        #expect(userDefaults.dictionary(forKey: "profile")?["name"] as? String == "Jaehong")
+        #expect(userDefaults.dictionary(forKey: "profile")?["age"] as? Int == 30)
     }
 
+    // swift-corelibs-foundation's `set(_ url:forKey:)` stores only `url.path`, so there is nothing
+    // left for its `url(forKey:)` to read back; see the note on the subscript.
+    #if canImport(ObjectiveC)
     @Test
     func writesURLFoundationCanRead() throws {
         let url = try #require(URL(string: "https://swift.org/blog"))
@@ -63,6 +74,7 @@ final class UserDefaultsEncodableTests: UserDefaultsTestCase {
 
         #expect(userDefaults.url(forKey: "url") == url)
     }
+    #endif
 
     @Test
     func removesTheKeyWhenTheValueIsNil() throws {

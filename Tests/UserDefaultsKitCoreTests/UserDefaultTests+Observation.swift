@@ -3,6 +3,8 @@
 //  UserDefaultsKit
 //
 
+// `UserDefaults.Observation` is Darwin-only; see the note on the type.
+#if canImport(ObjectiveC)
 import Foundation
 import SynchronizationKit
 import Testing
@@ -15,54 +17,76 @@ import UserDefaultsKitTestSupport
 /// each own one and lean on this behavior.
 @Suite("UserDefaults.Observation")
 final class UserDefaultsObservationTests: UserDefaultsTestCase {
+    /// Runs `body` against an observation of `key`, keeping it alive until `body` returns.
+    ///
+    /// In the package a subscription owns its observation. Here nothing would: an `Observation`
+    /// holds its handlers, but no handler holds it back, so ARC is free to release it the moment
+    /// the last statement naming it has run — and `deinit` unregisters. A test that then wrote and
+    /// expected a handler to fire would fail intermittently, and one expecting *no* handler to fire
+    /// would pass for the wrong reason.
+    private func withObservation(
+        key: String,
+        _ body: (UserDefaults.Observation) throws -> Void
+    ) rethrows {
+        let observation = UserDefaults.Observation(key: key, userDefaults: userDefaults)
+
+        try body(observation)
+
+        withExtendedLifetime(observation) {}
+    }
+
     @Test
     func firesHandlersWhenTheValueChanges() {
-        let observation = UserDefaults.Observation(key: "count", userDefaults: userDefaults)
-        let fired = Mutex(0)
-        _ = observation.addHandler { fired.withLock { $0 += 1 } }
+        withObservation(key: "count") { observation in
+            let fired = Mutex(0)
+            _ = observation.addHandler { fired.withLock { $0 += 1 } }
 
-        userDefaults.set(42, forKey: "count")
+            userDefaults.set(42, forKey: "count")
 
-        #expect(fired.withLock { $0 } == 1)
+            #expect(fired.withLock { $0 } == 1)
+        }
     }
 
     @Test
     func ignoresChangesToOtherKeys() {
-        let observation = UserDefaults.Observation(key: "count", userDefaults: userDefaults)
-        let fired = Mutex(false)
-        _ = observation.addHandler { fired.withLock { $0 = true } }
+        withObservation(key: "count") { observation in
+            let fired = Mutex(false)
+            _ = observation.addHandler { fired.withLock { $0 = true } }
 
-        userDefaults.set(42, forKey: "somethingElse")
+            userDefaults.set(42, forKey: "somethingElse")
 
-        #expect(fired.withLock { $0 } == false)
+            #expect(fired.withLock { $0 } == false)
+        }
     }
 
     @Test
     func removingAHandlerStopsItFiring() {
-        let observation = UserDefaults.Observation(key: "count", userDefaults: userDefaults)
-        let fired = Mutex(0)
-        let token = observation.addHandler { fired.withLock { $0 += 1 } }
+        withObservation(key: "count") { observation in
+            let fired = Mutex(0)
+            let token = observation.addHandler { fired.withLock { $0 += 1 } }
 
-        observation.removeHandler(token)
-        userDefaults.set(42, forKey: "count")
+            observation.removeHandler(token)
+            userDefaults.set(42, forKey: "count")
 
-        #expect(observation.handlerCount == 0)
-        #expect(fired.withLock { $0 } == 0)
+            #expect(observation.handlerCount == 0)
+            #expect(fired.withLock { $0 } == 0)
+        }
     }
 
     @Test
     func deliversToEveryAttachedHandler() {
-        let observation = UserDefaults.Observation(key: "count", userDefaults: userDefaults)
-        let first = Mutex(false)
-        let second = Mutex(false)
-        _ = observation.addHandler { first.withLock { $0 = true } }
-        _ = observation.addHandler { second.withLock { $0 = true } }
+        withObservation(key: "count") { observation in
+            let first = Mutex(false)
+            let second = Mutex(false)
+            _ = observation.addHandler { first.withLock { $0 = true } }
+            _ = observation.addHandler { second.withLock { $0 = true } }
 
-        userDefaults.set(42, forKey: "count")
+            userDefaults.set(42, forKey: "count")
 
-        #expect(observation.handlerCount == 2)
-        #expect(first.withLock { $0 } == true)
-        #expect(second.withLock { $0 } == true)
+            #expect(observation.handlerCount == 2)
+            #expect(first.withLock { $0 } == true)
+            #expect(second.withLock { $0 } == true)
+        }
     }
 
     // MARK: - Keys Key-Value Observing cannot take
@@ -73,34 +97,37 @@ final class UserDefaultsObservationTests: UserDefaultsTestCase {
     // it stops seeing is another process's, which no test here can reach.
     @Test
     func firesHandlersForAKeyContainingADot() {
-        let observation = UserDefaults.Observation(key: "com.example.count", userDefaults: userDefaults)
-        let fired = Mutex(0)
-        _ = observation.addHandler { fired.withLock { $0 += 1 } }
+        withObservation(key: "com.example.count") { observation in
+            let fired = Mutex(0)
+            _ = observation.addHandler { fired.withLock { $0 += 1 } }
 
-        userDefaults.set(42, forKey: "com.example.count")
+            userDefaults.set(42, forKey: "com.example.count")
 
-        #expect(fired.withLock { $0 } == 1)
+            #expect(fired.withLock { $0 } == 1)
+        }
     }
 
     @Test
     func firesHandlersForAKeyContainingACollectionOperator() {
-        let observation = UserDefaults.Observation(key: "@count", userDefaults: userDefaults)
-        let fired = Mutex(0)
-        _ = observation.addHandler { fired.withLock { $0 += 1 } }
+        withObservation(key: "@count") { observation in
+            let fired = Mutex(0)
+            _ = observation.addHandler { fired.withLock { $0 += 1 } }
 
-        userDefaults.set(42, forKey: "@count")
+            userDefaults.set(42, forKey: "@count")
 
-        #expect(fired.withLock { $0 } == 1)
+            #expect(fired.withLock { $0 } == 1)
+        }
     }
 
     // `addObserver(forKeyPath: "")` raises before there is anything to catch it, so constructing
     // this at all is what is being tested.
     @Test
     func doesNotRaiseForAnEmptyKey() {
-        let observation = UserDefaults.Observation(key: "", userDefaults: userDefaults)
-        _ = observation.addHandler {}
+        withObservation(key: "") { observation in
+            _ = observation.addHandler {}
 
-        #expect(observation.handlerCount == 1)
+            #expect(observation.handlerCount == 1)
+        }
     }
 
     // The release-mode crash this fallback exists to prevent: with `x.y` registered as a KVO key
@@ -108,12 +135,13 @@ final class UserDefaultsObservationTests: UserDefaultsTestCase {
     // expectation is the assertion.
     @Test
     func doesNotRaiseWhenTheLeadingSegmentOfADottedKeyIsWritten() {
-        let observation = UserDefaults.Observation(key: "x.y", userDefaults: userDefaults)
-        _ = observation.addHandler {}
+        withObservation(key: "x.y") { observation in
+            _ = observation.addHandler {}
 
-        userDefaults.set(1, forKey: "x")
+            userDefaults.set(1, forKey: "x")
 
-        #expect(observation.handlerCount == 1)
+            #expect(observation.handlerCount == 1)
+        }
     }
 
     // `UserDefaults(suiteName:)` returns a new instance on every call, so an app-group app that
@@ -124,39 +152,42 @@ final class UserDefaultsObservationTests: UserDefaultsTestCase {
     func firesForAWriteThroughAnotherInstanceUnderKeyValueObserving() throws {
         let other = try #require(UserDefaults(suiteName: suiteName))
 
-        let observation = UserDefaults.Observation(key: "count", userDefaults: userDefaults)
-        let fired = Mutex(0)
-        _ = observation.addHandler { fired.withLock { $0 += 1 } }
+        withObservation(key: "count") { observation in
+            let fired = Mutex(0)
+            _ = observation.addHandler { fired.withLock { $0 += 1 } }
 
-        other.set(42, forKey: "count")
+            other.set(42, forKey: "count")
 
-        #expect(fired.withLock { $0 } == 1)
+            #expect(fired.withLock { $0 } == 1)
+        }
     }
 
     @Test
     func firesForAWriteThroughAnotherInstanceOnTheFallback() throws {
         let other = try #require(UserDefaults(suiteName: suiteName))
 
-        let observation = UserDefaults.Observation(key: "com.example.count", userDefaults: userDefaults)
-        let fired = Mutex(0)
-        _ = observation.addHandler { fired.withLock { $0 += 1 } }
+        withObservation(key: "com.example.count") { observation in
+            let fired = Mutex(0)
+            _ = observation.addHandler { fired.withLock { $0 += 1 } }
 
-        other.set(42, forKey: "com.example.count")
+            other.set(42, forKey: "com.example.count")
 
-        #expect(fired.withLock { $0 } == 1)
+            #expect(fired.withLock { $0 } == 1)
+        }
     }
 
     // The notification names no key, so without a comparison every write anywhere in the suite
     // would look like a change to this one.
     @Test
     func ignoresChangesToOtherKeysOnTheFallback() {
-        let observation = UserDefaults.Observation(key: "com.example.count", userDefaults: userDefaults)
-        let fired = Mutex(false)
-        _ = observation.addHandler { fired.withLock { $0 = true } }
+        withObservation(key: "com.example.count") { observation in
+            let fired = Mutex(false)
+            _ = observation.addHandler { fired.withLock { $0 = true } }
 
-        userDefaults.set(42, forKey: "somethingElse")
+            userDefaults.set(42, forKey: "somethingElse")
 
-        #expect(fired.withLock { $0 } == false)
+            #expect(fired.withLock { $0 } == false)
+        }
     }
 
     // `UserDefaults` posts for a write that changed nothing, so the comparison is also what keeps a
@@ -165,16 +196,18 @@ final class UserDefaultsObservationTests: UserDefaultsTestCase {
     func ignoresARewriteOfTheSameValueOnTheFallback() {
         userDefaults.set(42, forKey: "com.example.count")
 
-        let observation = UserDefaults.Observation(key: "com.example.count", userDefaults: userDefaults)
-        let fired = Mutex(0)
-        _ = observation.addHandler { fired.withLock { $0 += 1 } }
+        withObservation(key: "com.example.count") { observation in
+            let fired = Mutex(0)
+            _ = observation.addHandler { fired.withLock { $0 += 1 } }
 
-        userDefaults.set(42, forKey: "com.example.count")
+            userDefaults.set(42, forKey: "com.example.count")
 
-        #expect(fired.withLock { $0 } == 0)
+            #expect(fired.withLock { $0 } == 0)
 
-        userDefaults.set(43, forKey: "com.example.count")
+            userDefaults.set(43, forKey: "com.example.count")
 
-        #expect(fired.withLock { $0 } == 1)
+            #expect(fired.withLock { $0 } == 1)
+        }
     }
 }
+#endif

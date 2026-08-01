@@ -9,15 +9,20 @@ import Foundation
 
 /// Reads and writes a `Codable` value in `UserDefaults`.
 ///
-/// Unlike `@AppStorage`, `Value` is not limited to the property-list types: anything `Codable` works,
-/// archived only when it has no property-list form. Property-list types are stored natively, so the
-/// defaults stay readable by `defaults(1)`, by `@AppStorage`, and by any other process sharing the
-/// domain.
+/// Unlike `@AppStorage`, `Value` is not limited to the property-list types: anything `Codable`
+/// works, encoded *into* a property list when it has no native form of its own — a struct as a
+/// dictionary, a `String`-backed enum as a string. Nothing this package encodes is archived, so
+/// those defaults stay readable by `defaults(1)`, by `@AppStorage`, and by any other process
+/// sharing the domain.
 ///
 /// Observe changes with `publisher` from `UserDefaultsKitCombine`, or with ``values``
-/// (`AsyncSequence`). For a SwiftUI view
-/// that updates when the value changes — including a change made by another process sharing the
-/// suite — use `UserDefaultStorage` from `UserDefaultsKitSwiftUI`.
+/// (`AsyncSequence`). For a SwiftUI view that updates when the value changes — including a change
+/// made by another process sharing the suite — use `UserDefaultStorage` from
+/// `UserDefaultsKitSwiftUI`.
+///
+/// Reading and writing works wherever Foundation does; those three do not. Watching a key needs the
+/// Objective-C runtime, which swift-corelibs-foundation has no equivalent for, so all three are
+/// Darwin-only and simply absent elsewhere rather than present and silent.
 ///
 /// The projected value is the wrapper itself, so the observation surfaces hang off `$`:
 ///
@@ -51,7 +56,20 @@ public struct UserDefault<Value>: Sendable where Value: Codable, Value: Sendable
     ///
     /// `UserDefaults.standard` unless the wrapper was given a suite, which is how a value is shared
     /// with an app extension or with another member of an app group.
-    public nonisolated(unsafe) let userDefaults: UserDefaults
+    public var userDefaults: UserDefaults { unsafe _userDefaults }
+
+    /// Backs ``userDefaults``, and the reason that one is computed.
+    ///
+    /// `UserDefaults` carries no `Sendable` conformance — it is an `open` class, so Apple cannot
+    /// add one — while its documentation says "The `UserDefaults` type is thread-safe, and you can
+    /// use the same object in multiple threads or tasks simultaneously." Opting out here is the
+    /// only way for this wrapper to be `Sendable`, and it is sound.
+    ///
+    /// Keeping the storage private is what stops that opt-out from spreading: on a `public let`,
+    /// every client compiling with strict memory safety has to write `unsafe` to read a property
+    /// whose safety this package has already established. Absorbing it is what ``wrappedValue``
+    /// does too.
+    private nonisolated(unsafe) let _userDefaults: UserDefaults
 
     /// The wrapper itself, which is what puts the observation surfaces behind `$`.
     ///
@@ -76,10 +94,10 @@ public struct UserDefault<Value>: Sendable where Value: Codable, Value: Sendable
     /// value nor ``defaultValue`` but the previous one. In debug this trips an assertion.
     public var wrappedValue: Value {
         get {
-            unsafe userDefaults[key, default: defaultValue]
+            userDefaults[key, default: defaultValue]
         }
         nonmutating set {
-            unsafe userDefaults[key] = newValue
+            userDefaults[key] = newValue
         }
     }
 
@@ -94,7 +112,7 @@ public struct UserDefault<Value>: Sendable where Value: Codable, Value: Sendable
     public init(key: String, defaultValue: Value, userDefaults: UserDefaults = .standard) {
         self.key = key
         self.defaultValue = defaultValue
-        unsafe self.userDefaults = userDefaults
+        unsafe self._userDefaults = userDefaults
     }
 
     /// Creates a wrapper that takes its default from the declaration it is attached to.

@@ -15,8 +15,9 @@ import UserDefaultsKitTestSupport
 /// native representation. A value the kit both wrote and read back proves nothing about whether the
 /// two agree with the rest of the system.
 ///
-/// The archived types are the exception: `Profile` and `Theme` have no property-list form, so the
-/// kit's own subscript is the only way to store them and the round trip is the contract.
+/// `Profile` and `Theme` have no *native* property-list form, so the kit encodes them into one.
+/// Those are checked both ways: written by the kit and read back, and written by Foundation in the
+/// shape the kit encodes to and read as the Swift type.
 @Suite("UserDefaults + Decodable")
 final class UserDefaultsDecodableTests: UserDefaultsTestCase {
     @Test
@@ -38,6 +39,9 @@ final class UserDefaultsDecodableTests: UserDefaultsTestCase {
         #expect(userDefaults["stringArray", type: [String].self] == ["a", "b"])
     }
 
+    // swift-corelibs-foundation's `set(_ url:forKey:)` stores only `url.path`, so the scheme and
+    // host are gone before either side of this can be exercised; see the note on the subscript.
+    #if canImport(ObjectiveC)
     @Test
     func readsURLWrittenByFoundation() throws {
         let url = try #require(URL(string: "https://swift.org/blog"))
@@ -55,15 +59,41 @@ final class UserDefaultsDecodableTests: UserDefaultsTestCase {
 
         #expect(userDefaults["url", type: URL.self] == url)
     }
+    #else
+    // What survives there, and why the note on the subscript stops where it does.
+    // swift-corelibs-foundation stores `url.path` and reads it back with `URL(fileURLWithPath:)`,
+    // so a file URL loses nothing it had — the scheme and host it drops were never set. This pins
+    // the half of the contract that holds rather than the half that is upstream's to fix.
+    @Test
+    func readsFileURLWrittenByTheKit() throws {
+        let url = URL(fileURLWithPath: "/tmp/user-defaults-kit/settings.json")
+
+        userDefaults["url"] = url
+
+        #expect(userDefaults["url", type: URL.self] == url)
+    }
+    #endif
 
     @Test
-    func readsArchivedValuesWrittenByTheKit() throws {
+    func readsEncodedValuesWrittenByTheKit() throws {
         let profile = Profile(name: "Jaehong", age: 30, tags: ["swift", "macOS"])
 
         userDefaults["profile"] = profile
         userDefaults["theme"] = Theme.dark
 
         #expect(userDefaults["profile", type: Profile.self] == profile)
+        #expect(userDefaults["theme", type: Theme.self] == .dark)
+    }
+
+    // The other direction of the same claim, and the one an archive could never satisfy: a value
+    // another writer put there in property-list form reads back as the Swift type. This is what
+    // makes the stored shape a contract rather than an implementation detail.
+    @Test
+    func readsValuesWrittenByFoundationInTheShapeTheKitEncodesTo() {
+        userDefaults.set(["name": "Jaehong", "age": 30, "tags": ["swift"]], forKey: "profile")
+        userDefaults.set("dark", forKey: "theme")
+
+        #expect(userDefaults["profile", type: Profile.self] == Profile(name: "Jaehong", age: 30, tags: ["swift"]))
         #expect(userDefaults["theme", type: Theme.self] == .dark)
     }
 
@@ -103,6 +133,31 @@ final class UserDefaultsDecodableTests: UserDefaultsTestCase {
         #expect(userDefaults["int", type: Double.self] == 42)
     }
 
+    // The other three rungs of the same ladders, and the ones nothing else reaches. Like the
+    // numeric cases under `Bool`, each is dead on Darwin — `object(forKey:)` returns an `NSNumber`
+    // and the first case has already matched — and live on Linux, where it returns a plain `Float`
+    // or `Int`. Removing any of the three breaks only these expectations, and only there.
+    @Test
+    func readsAnIntWrittenAsAFloat() {
+        userDefaults.set(Float(3.5), forKey: "float")
+
+        #expect(userDefaults["float", type: Int.self] == 3)
+    }
+
+    @Test
+    func readsAFloatWrittenAsAnInt() {
+        userDefaults.set(42, forKey: "int")
+
+        #expect(userDefaults["int", type: Float.self] == 42)
+    }
+
+    @Test
+    func readsADoubleWrittenAsAFloat() {
+        userDefaults.set(Float(1.5), forKey: "float")
+
+        #expect(userDefaults["float", type: Double.self] == 1.5)
+    }
+
     // The same reasoning in the other direction. `<real>` is what `defaults(1)` writes for any
     // fractional literal, so rejecting it when an `Int` is asked for would drop a value another
     // writer meant as a number. Truncating toward zero is what `integer(forKey:)` does with the
@@ -137,9 +192,37 @@ final class UserDefaultsDecodableTests: UserDefaultsTestCase {
     func readsABoolWrittenAsZeroOrOne() {
         userDefaults.set(1, forKey: "one")
         userDefaults.set(0, forKey: "zero")
+        userDefaults.set(1.0, forKey: "realOne")
+        userDefaults.set(Float(0), forKey: "realZero")
 
         #expect(userDefaults["one", type: Bool.self] == true)
         #expect(userDefaults["zero", type: Bool.self] == false)
+
+        // A property list keeps no `Int`/`real` distinction, so these have to read the same way.
+        // On Darwin the `Bool` case has already matched by here; the numeric cases exist for
+        // swift-corelibs-foundation, which hands back a plain `Double` or `Float`, and these two
+        // expectations are the only thing that exercises them anywhere.
+        #expect(userDefaults["realOne", type: Bool.self] == true)
+        #expect(userDefaults["realZero", type: Bool.self] == false)
+    }
+
+    // A property list has no null, so `PropertyListEncoder` writes one as the string `$null`. The
+    // stored `("a", "$null", "b")` casts cleanly to `[String?]`, which would hand that sentinel
+    // back as a value — so the decoder has to see the stored object before the cast does.
+    @Test
+    func readsNilElementsBackAsNil() {
+        userDefaults["names"] = ["a", nil, "b"] as [String?]
+
+        #expect(userDefaults["names", type: [String?].self] == ["a", nil, "b"])
+    }
+
+    // And the other side of it: a string that genuinely is `$null` has to survive. Decoding one
+    // into a non-optional `String` fails, which is what hands the stored value to the cast.
+    @Test
+    func readsAStringThatMatchesTheNullSentinel() {
+        userDefaults["names"] = ["a", "$null"]
+
+        #expect(userDefaults["names", type: [String].self] == ["a", "$null"])
     }
 
     @Test
@@ -192,13 +275,17 @@ final class UserDefaultsDecodableTests: UserDefaultsTestCase {
 
     @Test
     func readsOptionalValuesThatArePresent() throws {
-        let url = try #require(URL(string: "https://swift.org/blog"))
         userDefaults.set("hello", forKey: "string")
         userDefaults.set(42, forKey: "int")
-        userDefaults.set(url, forKey: "url")
 
         #expect(userDefaults["string", type: String?.self] == "hello")
         #expect(userDefaults["int", type: Int?.self] == 42)
+
+        #if canImport(ObjectiveC)
+        let url = try #require(URL(string: "https://swift.org/blog"))
+        userDefaults.set(url, forKey: "url")
+
         #expect(userDefaults["url", type: URL?.self] == url)
+        #endif
     }
 }

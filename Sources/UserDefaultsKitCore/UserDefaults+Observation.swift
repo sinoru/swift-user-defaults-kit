@@ -3,6 +3,12 @@
 //  UserDefaultsKit
 //
 
+// Watching a key needs the Objective-C runtime. swift-corelibs-foundation has no KVO, and its
+// `UserDefaults` posts `didChangeNotification` only for `setPersistentDomain` and
+// `removePersistentDomain` — never for a `set(_:forKey:)` write — so neither backend this type
+// could use exists away from Darwin. Reading and writing works everywhere; observing does not, and
+// the honest way to say that is to not offer it.
+#if canImport(ObjectiveC)
 import Foundation
 import SynchronizationKit
 
@@ -188,3 +194,4 @@ extension UserDefaults {
         }
     }
 }
+#endif

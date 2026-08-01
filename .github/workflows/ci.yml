@@ -29,13 +29,11 @@ jobs:
     name: Linux
     runs-on: ubuntu-latest
     container: swift:6.3
-    # Not green yet, and this job is what settles it. `UserDefaultsKitCore` reaches for
-    # Objective-C KVO, which swift-corelibs-foundation has no runtime for, and whether
-    # NSKeyedArchiver's `encodeEncodable`/`decodeDecodable` exist there has never been checked
-    # against a Linux toolchain. Until non-Darwin support is either implemented or dropped, this
-    # reports without failing the workflow — which is the honest state, now that the manifest no
-    # longer decides the question from whichever machine happened to run it.
-    continue-on-error: true
+    # Reading and writing works here; observing does not. swift-corelibs-foundation has no KVO, and
+    # posts `didChangeNotification` only for whole-domain changes rather than for a
+    # `set(_:forKey:)` write, so `UserDefaults.Observation` and `UserDefault.values` compile out —
+    # this job is what keeps that boundary from drifting, and what would catch the storage half
+    # regressing on a platform nobody develops on.
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain

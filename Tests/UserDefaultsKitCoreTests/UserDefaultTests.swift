@@ -60,7 +60,7 @@ final class UserDefaultTests: UserDefaultsTestCase {
 
         #expect(projection.key == count.key)
         #expect(projection.defaultValue == count.defaultValue)
-        #expect(unsafe projection.userDefaults === count.userDefaults)
+        #expect(projection.userDefaults === count.userDefaults)
     }
 
     @Test

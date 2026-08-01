@@ -10,13 +10,15 @@ import Foundation
 extension UserDefaults {
     /// Accesses the `Codable` value stored under a key.
     ///
-    /// A value that has a property-list form is stored in it; anything else is archived. Either way
-    /// the result stays legible to `defaults(1)`, to `@AppStorage`, and to any other process sharing
-    /// the domain — which is the whole point of not archiving indiscriminately.
+    /// A value that has a property-list form is stored in it, and anything else is *encoded into*
+    /// one: a struct lands as a dictionary, a `String`-backed enum as a string. Nothing this
+    /// package encodes becomes an opaque archive, so a type Foundation had no way to write stays as
+    /// legible to `defaults(1)`, to `@AppStorage`, and to any other process sharing the domain as
+    /// one it did — which is the whole point.
     ///
     /// ```swift
     /// userDefaults["username"] = "anonymous"          // stored as a string
-    /// userDefaults["profile"] = Profile(name: "Kim")  // archived
+    /// userDefaults["profile"] = Profile(name: "Kim")  // stored as a dictionary
     ///
     /// let name = userDefaults["username", type: String.self]
     /// ```
@@ -40,8 +42,12 @@ extension UserDefaults {
     ///   mismatch into `0`.
     /// - `String` and `URL` inherit the coercions of `string(forKey:)` and `url(forKey:)`. Reading a
     ///   stored `123` as a `String` therefore yields `"123"`, while the reverse yields `nil`.
-    /// - `Data` is the exception to the rule above. An archived value *is* stored as data, so
-    ///   reading one as `Data` yields its archive bytes rather than `nil`.
+    ///   Inheriting them costs `URL` away from Darwin: swift-corelibs-foundation's
+    ///   `set(_:forKey:)` keeps only `url.path`, dropping the scheme and host before anything here
+    ///   can see them, and its `url(forKey:)` reads whatever is left back as a file path. Only a
+    ///   file URL survives the round trip there.
+    /// - `Data` means stored data. A value this package encoded into a dictionary or a string does
+    ///   not read back as the bytes it was built from.
     ///
     /// - Parameters:
     ///   - defaultName: The key to read and write.
@@ -63,13 +69,22 @@ extension UserDefaults {
 
                 return url as? T
             case is Bool.Type, is Bool?.Type:
-                // Behaves as `NSNumber` bridging does today — `<true/>` and a numeric `0`/`1` both
-                // read, anything else is `nil`. Spelled out so the contract stays put if that
-                // bridging ever loosens: `bool(forKey:)` treats any non-zero number as `true`, and
-                // silently inheriting that would flatten a mismatch the way the doc says it won't.
+                // `<true/>` and a number that is exactly `0` or `1` both read; anything else is
+                // missing. Spelled out rather than left to bridging for two reasons. `bool(forKey:)`
+                // would call any non-zero number `true`, flattening a mismatch the way the doc above
+                // says it will not. And the bridging that lets the `Bool` case catch a stored number
+                // at all is Darwin's — swift-corelibs-foundation hands back a plain `Int`, `Double`
+                // or `Float` — so the three numeric cases are what make this mean the same thing on
+                // both. They are unreachable on Darwin, where `as Bool` has already matched.
                 switch object(forKey: defaultName) {
                 case let value as Bool:
                     return value as? T
+                case let value as Int where value == 0 || value == 1:
+                    return (value == 1) as? T
+                case let value as Double where value == 0 || value == 1:
+                    return (value == 1) as? T
+                case let value as Float where value == 0 || value == 1:
+                    return (value == 1) as? T
                 default:
                     return nil
                 }
@@ -129,17 +144,33 @@ extension UserDefaults {
                     return nil
                 }
             default:
-                let value = object(forKey: defaultName)
+                guard let value = object(forKey: defaultName) else { return nil }
 
-                switch value {
-                case let value as T:
-                    return value
-                case let value as Data:
-                    let keyedUnarchiver = try? NSKeyedUnarchiver(forReadingFrom: value)
-                    return keyedUnarchiver?.decodeDecodable(T.self, forKey: NSKeyedArchiveRootObjectKey)
-                default:
-                    return nil
+                // Decoding gets first refusal, and the cast is the fallback rather than the other
+                // way round. A property list has no null, so `PropertyListEncoder` writes one as
+                // the string `$null` — and a stored `["a", "$null", "b"]` casts cleanly to
+                // `[String?]`, handing that sentinel back as a value instead of the `nil` it stands
+                // for. Only the decoder knows to read it back.
+                //
+                // Trying the cast afterwards is what keeps a string that genuinely is `$null`:
+                // decoding one into a non-optional `String` fails, and the cast returns what was
+                // stored. It also covers whatever the decoder has no way to build.
+                //
+                // No array wrapper on this side. The fragment restriction the setter works around
+                // belongs to `PropertyListEncoder` alone; the decoder takes a top-level fragment,
+                // which is what a `String`-backed enum was stored as.
+                if
+                    let data = try? PropertyListSerialization.data(
+                        fromPropertyList: value,
+                        format: .binary,
+                        options: 0
+                    ),
+                    let decoded = try? PropertyListDecoder().decode(T.self, from: data)
+                {
+                    return decoded
                 }
+
+                return value as? T
             }
         }
         set {
@@ -163,10 +194,21 @@ extension UserDefaults {
                 self.set(newValue as Any, forKey: defaultName)
             default:
                 do {
-                    let keyedArchiver = NSKeyedArchiver(requiringSecureCoding: true)
-                    try keyedArchiver.encodeEncodable(newValue, forKey: NSKeyedArchiveRootObjectKey)
+                    // `PropertyListEncoder` refuses a top-level fragment, and a `String`-backed enum
+                    // encodes to exactly that, so the value rides inside a single-element array and
+                    // is unwrapped again before it is stored. The array is transport and never
+                    // storage: what lands under the key is the value's own property-list shape.
+                    let data = try PropertyListEncoder().encode([newValue])
+                    let list = try unsafe PropertyListSerialization.propertyList(from: data, format: nil)
 
-                    self.set(keyedArchiver.encodedData as Any, forKey: defaultName)
+                    guard let encoded = (list as? [Any])?.first else {
+                        // Unreachable: what went in was a single-element array, so what comes back
+                        // is one.
+                        assertionFailure("encoding a single-element array did not produce an array")
+                        return
+                    }
+
+                    self.set(encoded, forKey: defaultName)
                 } catch {
                     // Interpolated, not localized: `EncodingError.localizedDescription` is a generic
                     // "operation couldn't be completed" and drops the `codingPath` that says which

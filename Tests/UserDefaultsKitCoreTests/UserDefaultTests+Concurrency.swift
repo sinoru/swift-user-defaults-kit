@@ -3,6 +3,8 @@
 //  UserDefaultsKit
 //
 
+// `UserDefault.values` is Darwin-only; see the note on `UserDefaults.Observation`.
+#if canImport(ObjectiveC)
 import Foundation
 import Testing
 import UserDefaultsKitTestSupport
@@ -110,3 +112,4 @@ final class UserDefaultConcurrencyTests: UserDefaultsTestCase {
         #expect(await iterator.next() == 7)
     }
 }
+#endif

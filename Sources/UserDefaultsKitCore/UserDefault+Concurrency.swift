@@ -3,6 +3,8 @@
 //  UserDefaultsKit
 //
 
+// Built on ``UserDefaults/Observation``, which is Darwin-only; see the note there.
+#if canImport(ObjectiveC)
 import Foundation
 
 extension UserDefault {
@@ -15,7 +17,7 @@ extension UserDefault {
     /// Values are produced on whichever thread performed the write; iterate from wherever suits.
     public var values: AsyncStream<Value> {
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            let observation = unsafe UserDefaults.Observation(key: key, userDefaults: userDefaults)
+            let observation = UserDefaults.Observation(key: key, userDefaults: userDefaults)
 
             // Attach before seeding. The other order would drop a write that landed in between.
             // This order usually only repeats a value, since the handler re-reads from
@@ -35,3 +37,4 @@ extension UserDefault {
         }
     }
 }
+#endif

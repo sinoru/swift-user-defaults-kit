@@ -29,7 +29,7 @@ extension UserDefault {
             // holding mutable state should serialize it rather than lean on Combine's usual
             // one-at-a-time delivery.
             nonisolated(unsafe) let subject = CurrentValueSubject<Value, Never>(wrappedValue)
-            let observation = unsafe UserDefaults.Observation(key: key, userDefaults: userDefaults)
+            let observation = UserDefaults.Observation(key: key, userDefaults: userDefaults)
 
             // `self` is a `Sendable` value, and re-reading `wrappedValue` goes back to
             // `UserDefaults` every time. Capturing the value instead would freeze it at

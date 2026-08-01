@@ -24,10 +24,15 @@ let traits: Set<PackageDescription.Trait> = [
     .default(enabledTraits: ["Combine", "SwiftUI"]),
 ]
 
+// The floor is 0.0.2 rather than 0.0.1 because a consumer resolves this range for itself and never
+// sees this package's `Package.resolved`. 0.0.2 is where `RWLock` stopped drawing ThreadSanitizer
+// reports on the Mach semaphore backend — which is every deployment target this package supports
+// below macOS 14.4 and iOS 17.4 — and where `_MutexHandle`/`_RWLockHandle`, public in 0.0.1 by
+// oversight, went back to being plumbing.
 let dependencies: [PackageDescription.Package.Dependency] = [
     .package(
         url: "https://github.com/sinoru/swift-synchronization-kit.git",
-        "0.0.1"..<"0.1.0"
+        "0.0.2"..<"0.1.0"
     ),
 ]
 

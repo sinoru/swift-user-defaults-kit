@@ -113,7 +113,7 @@ final class Coordinator<Value>: ObservableObject where Value: Codable, Value: Se
     /// caller holds its suite, and misreads it when the suite is built inline in the declaration —
     /// see the `store:` note on `UserDefaultStorage.init(wrappedValue:_:store:)`.
     func observe(_ userDefault: UserDefault<Value>) {
-        let store = unsafe userDefault.userDefaults
+        let store = userDefault.userDefaults
 
         if let observed, observed.key == userDefault.key, observed.store === store {
             return
