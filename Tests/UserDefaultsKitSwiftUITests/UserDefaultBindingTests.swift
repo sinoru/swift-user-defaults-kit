@@ -38,18 +38,18 @@ final class UserDefaultBindingTests {
     func readsThroughToUserDefaults() {
         let name = UserDefault(key: "name", defaultValue: "anonymous", userDefaults: userDefaults)
 
-        userDefaults.set("Jaehong", forKey: "name")
+        userDefaults.set("Jane Doe", forKey: "name")
 
-        #expect(name.binding.wrappedValue == "Jaehong")
+        #expect(name.binding.wrappedValue == "Jane Doe")
     }
 
     @Test
     func writesThroughToUserDefaults() {
         let name = UserDefault(key: "name", defaultValue: "anonymous", userDefaults: userDefaults)
 
-        name.binding.wrappedValue = "Jaehong"
+        name.binding.wrappedValue = "Jane Doe"
 
-        #expect(userDefaults.string(forKey: "name") == "Jaehong")
+        #expect(userDefaults.string(forKey: "name") == "Jane Doe")
     }
 
     @Test
@@ -69,10 +69,10 @@ final class UserDefaultBindingTests {
 
         #expect(name.wrappedValue == "anonymous")
 
-        name.wrappedValue = "Jaehong"
+        name.wrappedValue = "Jane Doe"
 
-        #expect(userDefaults.string(forKey: "name") == "Jaehong")
-        #expect(name.projectedValue.wrappedValue == "Jaehong")
+        #expect(userDefaults.string(forKey: "name") == "Jane Doe")
+        #expect(name.projectedValue.wrappedValue == "Jane Doe")
     }
 
     // `@StateObject` builds its object once per view identity and discards every later one, so the

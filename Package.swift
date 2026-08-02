@@ -58,10 +58,18 @@ let targets: [PackageDescription.Target] = [
         ],
         swiftSettings: commonSwiftSettings,
     ),
+    // Deliberately not a product, and everything it offers is `package` rather than `public`. Being
+    // left out of `products` keeps it from being advertised; the access level is what keeps it from
+    // being used, since a target built as a dependency still lands on a consumer's search path.
+    .target(
+        name: "UserDefaultsKitPropertyList",
+        swiftSettings: commonSwiftSettings,
+    ),
     .target(
         name: "UserDefaultsKitCore",
         dependencies: [
             .product(name: "SynchronizationKit", package: "swift-synchronization-kit"),
+            "UserDefaultsKitPropertyList",
         ],
         swiftSettings: commonSwiftSettings,
     ),
@@ -80,6 +88,11 @@ let targets: [PackageDescription.Target] = [
     ),
     .target(
         name: "UserDefaultsKitTestSupport",
+        swiftSettings: commonSwiftSettings,
+    ),
+    .testTarget(
+        name: "UserDefaultsKitPropertyListTests",
+        dependencies: ["UserDefaultsKitPropertyList"],
         swiftSettings: commonSwiftSettings,
     ),
     .testTarget(

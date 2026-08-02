@@ -40,16 +40,16 @@ final class UserDefaultTests: UserDefaultsTestCase {
 
     @Test
     func storesValuesOutsideThePropertyListTypes() {
-        let jaehong = Profile(name: "Jaehong", age: 30, tags: ["swift"])
+        let jane = Profile(name: "Jane Doe", age: 30, tags: ["swift"])
         let profile = UserDefault(
             key: "profile",
             defaultValue: Profile(name: "", age: 0, tags: []),
             userDefaults: userDefaults
         )
 
-        profile.wrappedValue = jaehong
+        profile.wrappedValue = jane
 
-        #expect(profile.wrappedValue == jaehong)
+        #expect(profile.wrappedValue == jane)
     }
 
     @Test
@@ -111,16 +111,16 @@ final class UserDefaultTests: UserDefaultsTestCase {
     func roundTripsAnOptionalValue() {
         let name = UserDefault(key: "name", defaultValue: String?.none, userDefaults: userDefaults)
 
-        name.wrappedValue = "Jaehong"
+        name.wrappedValue = "Jane Doe"
 
-        #expect(name.wrappedValue == "Jaehong")
-        #expect(userDefaults.string(forKey: "name") == "Jaehong")
+        #expect(name.wrappedValue == "Jane Doe")
+        #expect(userDefaults.string(forKey: "name") == "Jane Doe")
     }
 
     @Test
     func assigningNilRemovesTheKeyAndFallsBackToTheDefaultValue() {
         let name = UserDefault(key: "name", defaultValue: String?("anonymous"), userDefaults: userDefaults)
-        name.wrappedValue = "Jaehong"
+        name.wrappedValue = "Jane Doe"
 
         name.wrappedValue = nil
 

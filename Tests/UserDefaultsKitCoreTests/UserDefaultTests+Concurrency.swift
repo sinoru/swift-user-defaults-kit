@@ -82,14 +82,14 @@ final class UserDefaultConcurrencyTests: UserDefaultsTestCase {
             defaultValue: Profile(name: "", age: 0, tags: []),
             userDefaults: userDefaults
         )
-        let jaehong = Profile(name: "Jaehong", age: 30, tags: ["swift"])
+        let jane = Profile(name: "Jane Doe", age: 30, tags: ["swift"])
 
         var iterator = profile.values.makeAsyncIterator()
         _ = await iterator.next()
 
-        profile.wrappedValue = jaehong
+        profile.wrappedValue = jane
 
-        #expect(await iterator.next() == jaehong)
+        #expect(await iterator.next() == jane)
     }
 
     // Each `values` stream owns its observation and unregisters it when torn down, so churning through

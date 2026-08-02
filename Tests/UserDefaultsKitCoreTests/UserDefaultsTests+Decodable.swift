@@ -76,7 +76,7 @@ final class UserDefaultsDecodableTests: UserDefaultsTestCase {
 
     @Test
     func readsEncodedValuesWrittenByTheKit() throws {
-        let profile = Profile(name: "Jaehong", age: 30, tags: ["swift", "macOS"])
+        let profile = Profile(name: "Jane Doe", age: 30, tags: ["swift", "macOS"])
 
         userDefaults["profile"] = profile
         userDefaults["theme"] = Theme.dark
@@ -90,10 +90,10 @@ final class UserDefaultsDecodableTests: UserDefaultsTestCase {
     // makes the stored shape a contract rather than an implementation detail.
     @Test
     func readsValuesWrittenByFoundationInTheShapeTheKitEncodesTo() {
-        userDefaults.set(["name": "Jaehong", "age": 30, "tags": ["swift"]], forKey: "profile")
+        userDefaults.set(["name": "Jane Doe", "age": 30, "tags": ["swift"]], forKey: "profile")
         userDefaults.set("dark", forKey: "theme")
 
-        #expect(userDefaults["profile", type: Profile.self] == Profile(name: "Jaehong", age: 30, tags: ["swift"]))
+        #expect(userDefaults["profile", type: Profile.self] == Profile(name: "Jane Doe", age: 30, tags: ["swift"]))
         #expect(userDefaults["theme", type: Theme.self] == .dark)
     }
 
@@ -115,6 +115,22 @@ final class UserDefaultsDecodableTests: UserDefaultsTestCase {
     }
 
     // MARK: - Numeric storage
+
+    // The ends of the range, which is where the platforms stop spelling a stored number the same
+    // way. swift-corelibs-foundation unboxes one into whichever Swift type
+    // `NSNumber._swiftValueOfOptimalType` picks, and for a 64-bit signed value that is
+    // `int64Value < Int.max ? Int(int64Value) : int64Value` — an `Int64` at exactly `Int.max`, which
+    // is a separate type that an `as? Int` does not match. `Int.max` did read back as missing there
+    // before the `FixedWidthInteger` cases went in, and the two ends are the only arguments here
+    // that reach them.
+    @Test(arguments: [Int.min, -1, 0, 1, Int.max])
+    func readsBackEveryIntWrittenByFoundation(_ value: Int) {
+        userDefaults.set(value, forKey: "int")
+
+        #expect(userDefaults["int", type: Int.self] == value)
+        #expect(userDefaults["int", type: Double.self] == Double(value))
+        #expect(userDefaults["int", type: Float.self] == Float(value))
+    }
 
     // A property list keeps no `Float`/`Double` distinction — both land as `<real>`. Demanding an
     // exact `Float` back would reject `1.1`, which has no binary32 form, and quietly substitute the
@@ -216,6 +232,20 @@ final class UserDefaultsDecodableTests: UserDefaultsTestCase {
         #expect(userDefaults["names", type: [String?].self] == ["a", nil, "b"])
     }
 
+    // A stored sentinel standing where a whole value should be reads as *missing*, not as a value
+    // that is present and nil. The optional spellings are what break if it does not: a decoded
+    // `.none` returned as `T?` becomes `.some(.none)`, which the `??` in
+    // ``subscript(_:type:default:)`` takes for a value and never replaces.
+    @Test
+    func fallsBackToTheDefaultValueWhenTheWholeStoredValueIsTheNullSentinel() {
+        userDefaults.set("$null", forKey: "sentinel")
+
+        #expect(userDefaults["sentinel", type: Int?.self] == nil)
+        #expect(userDefaults["sentinel", default: Int?(7)] == 7)
+        #expect(userDefaults["sentinel", default: Bool?(true)] == true)
+        #expect(userDefaults["sentinel", default: 7] == 7)
+    }
+
     // And the other side of it: a string that genuinely is `$null` has to survive. Decoding one
     // into a non-optional `String` fails, which is what hands the stored value to the cast.
     @Test
@@ -223,6 +253,18 @@ final class UserDefaultsDecodableTests: UserDefaultsTestCase {
         userDefaults["names"] = ["a", "$null"]
 
         #expect(userDefaults["names", type: [String].self] == ["a", "$null"])
+    }
+
+    // The other direction, which does not hold: a property list distinguishes `<true/>` from
+    // `<integer>1</integer>`, so a stored boolean asked for as a number is a mismatch rather than a
+    // `1`. `integer(forKey:)` would say `1`.
+    @Test
+    func doesNotReadABooleanAsANumber() {
+        userDefaults.set(true, forKey: "flag")
+
+        #expect(userDefaults["flag", type: Int.self] == nil)
+        #expect(userDefaults["flag", type: Double.self] == nil)
+        #expect(userDefaults["flag", default: 7] == 7)
     }
 
     @Test

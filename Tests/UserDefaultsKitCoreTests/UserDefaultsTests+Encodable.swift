@@ -52,14 +52,14 @@ final class UserDefaultsEncodableTests: UserDefaultsTestCase {
     // trip just as well and fail every expectation below.
     @Test
     func encodesValuesOutsideThePropertyListTypesAsPropertyLists() throws {
-        userDefaults["profile"] = Profile(name: "Jaehong", age: 30, tags: ["swift"])
+        userDefaults["profile"] = Profile(name: "Jane Doe", age: 30, tags: ["swift"])
         userDefaults["theme"] = Theme.dark
 
         #expect(!(try #require(userDefaults.object(forKey: "profile")) is Data))
         #expect(!(try #require(userDefaults.object(forKey: "theme")) is Data))
 
         #expect(userDefaults.string(forKey: "theme") == "dark")
-        #expect(userDefaults.dictionary(forKey: "profile")?["name"] as? String == "Jaehong")
+        #expect(userDefaults.dictionary(forKey: "profile")?["name"] as? String == "Jane Doe")
         #expect(userDefaults.dictionary(forKey: "profile")?["age"] as? Int == 30)
     }
 

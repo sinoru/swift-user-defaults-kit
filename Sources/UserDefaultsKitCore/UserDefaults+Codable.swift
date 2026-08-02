@@ -7,6 +7,12 @@
 
 import Foundation
 
+// `internal` rather than `package`, which is as far as the module's own access level would allow.
+// Nothing here puts a `PropertyListValue` in a signature — the subscript is generic over `Codable`
+// and the tree only exists inside these bodies — so the tighter spelling is the accurate one, and it
+// keeps the module from reaching a consumer through this one.
+internal import UserDefaultsKitPropertyList
+
 extension UserDefaults {
     /// Accesses the `Codable` value stored under a key.
     ///
@@ -30,13 +36,16 @@ extension UserDefaults {
     ///
     /// Reading follows the defaults system's storage model rather than Swift's type identity:
     ///
-    /// - The numeric types read one another. A property list keeps no `Float`/`Double`/`Int`
-    ///   distinction, so refusing a `Double` when asked for a `Float` would reject a value the
-    ///   defaults system never promised to keep apart. Reading a fractional value as an `Int`
-    ///   truncates toward zero; one too large to represent — or a NaN — reads as `nil` rather
-    ///   than trapping.
+    /// - The numeric types read one another, at any depth. A property list keeps no
+    ///   `Float`/`Double`/`Int` distinction, so refusing a `Double` when asked for a `Float` would
+    ///   reject a value the defaults system never promised to keep apart — and refusing it inside
+    ///   an array while allowing it at the top would be a rule that is true only where it is easy.
+    ///   Reading a fractional value as an `Int` truncates toward zero; one too large to represent —
+    ///   or a NaN — reads as `nil` rather than trapping.
     /// - `Bool` reads what a property list can mean by it: `true`/`false`, or a number that is
     ///   exactly `0` or `1`. A stored `2` reads as `nil`, where `bool(forKey:)` would say `true`.
+    ///   This does not run the other way: a stored `<true/>` asked for as a number reads as `nil`,
+    ///   because a property list does keep those apart and `defaults(1)` prints them differently.
     /// - A value of an unrelated kind reads back as `nil`, letting a caller's default take over.
     ///   This is deliberately stricter than `integer(forKey:)` and its siblings, which flatten a
     ///   mismatch into `0`.
@@ -68,109 +77,66 @@ extension UserDefaults {
                 guard let url = url(forKey: defaultName) else { return nil }
 
                 return url as? T
-            case is Bool.Type, is Bool?.Type:
-                // `<true/>` and a number that is exactly `0` or `1` both read; anything else is
-                // missing. Spelled out rather than left to bridging for two reasons. `bool(forKey:)`
-                // would call any non-zero number `true`, flattening a mismatch the way the doc above
-                // says it will not. And the bridging that lets the `Bool` case catch a stored number
-                // at all is Darwin's — swift-corelibs-foundation hands back a plain `Int`, `Double`
-                // or `Float` — so the three numeric cases are what make this mean the same thing on
-                // both. They are unreachable on Darwin, where `as Bool` has already matched.
-                switch object(forKey: defaultName) {
-                case let value as Bool:
-                    return value as? T
-                case let value as Int where value == 0 || value == 1:
-                    return (value == 1) as? T
-                case let value as Double where value == 0 || value == 1:
-                    return (value == 1) as? T
-                case let value as Float where value == 0 || value == 1:
-                    return (value == 1) as? T
-                default:
-                    return nil
-                }
-            case is Int.Type, is Int?.Type:
-                // Same reasoning as `Float` below: a property list keeps no `Int`/`real`
-                // distinction, so rejecting a stored `<real>` outright would drop a value another
-                // writer meant as a number. `Int(exactly:)` after truncating is what keeps that
-                // from trapping on a NaN or on a magnitude `Int` cannot hold — both reachable by
-                // anyone who can write the domain, `defaults(1)` included.
-                //
-                // The conversion is unwrapped before the cast rather than after. `Int(exactly:)`
-                // yields an `Int?`, and casting *that* with `as? T` where `T` is itself `Int?`
-                // succeeds on the failure — the outer optional comes back `.some(.none)`, which
-                // reads as a value that is present and nil, so the `??` in
-                // ``subscript(_:type:default:)`` never fires and the caller's default is lost.
-                switch object(forKey: defaultName) {
-                case let value as Int:
-                    return value as? T
-                case let value as Double:
-                    guard let value = Int(exactly: value.rounded(.towardZero)) else { return nil }
-
-                    return value as? T
-                case let value as Float:
-                    guard let value = Int(exactly: value.rounded(.towardZero)) else { return nil }
-
-                    return value as? T
-                default:
-                    return nil
-                }
-            case is Float.Type, is Float?.Type:
-                // A property list has no `Float`: every number lands as `<integer>` or `<real>`, so
-                // whether a writer used `Float`, `Double` or `Int` is not preserved. Asking for an
-                // exact `Float` back would reject a `Double` the moment it is not representable in
-                // binary32 — `1.1` written by anyone else would silently fall back to the default.
-                switch object(forKey: defaultName) {
-                case let value as Float:
-                    return value as? T
-                case let value as Double:
-                    return Float(value) as? T
-                case let value as Int:
-                    return Float(value) as? T
-                default:
-                    return nil
-                }
-            case is Double.Type, is Double?.Type:
-                // Spelled out for the same reason. `Double` happens to read `Float` and `Int`
-                // storage today, but only by way of `NSNumber` bridging; naming the Swift types
-                // keeps that working if `object(forKey:)` ever hands back native ones.
-                switch object(forKey: defaultName) {
-                case let value as Double:
-                    return value as? T
-                case let value as Float:
-                    return Double(value) as? T
-                case let value as Int:
-                    return Double(value) as? T
-                default:
-                    return nil
-                }
             default:
                 guard let value = object(forKey: defaultName) else { return nil }
 
                 // Decoding gets first refusal, and the cast is the fallback rather than the other
-                // way round. A property list has no null, so `PropertyListEncoder` writes one as
-                // the string `$null` — and a stored `["a", "$null", "b"]` casts cleanly to
-                // `[String?]`, handing that sentinel back as a value instead of the `nil` it stands
-                // for. Only the decoder knows to read it back.
+                // way round. A property list has no null, so a `nil` inside one is written as the
+                // string `$null` — and a stored `["a", "$null", "b"]` casts cleanly to `[String?]`,
+                // handing that sentinel back as a value instead of the `nil` it stands for. Only
+                // the decoder knows to read it back.
                 //
                 // Trying the cast afterwards is what keeps a string that genuinely is `$null`:
                 // decoding one into a non-optional `String` fails, and the cast returns what was
-                // stored. It also covers whatever the decoder has no way to build.
+                // stored. It also covers whatever the decoder has no way to build — including a
+                // stored value too wide for `PropertyListValue` to carry.
                 //
-                // No array wrapper on this side. The fragment restriction the setter works around
-                // belongs to `PropertyListEncoder` alone; the decoder takes a top-level fragment,
-                // which is what a `String`-backed enum was stored as.
-                if
-                    let data = try? PropertyListSerialization.data(
-                        fromPropertyList: value,
-                        format: .binary,
-                        options: 0
-                    ),
-                    let decoded = try? PropertyListDecoder().decode(T.self, from: data)
-                {
-                    return decoded
+                // The stored object is walked once here. Reaching `PropertyListDecoder` meant
+                // serializing it to `Data` and scanning that back first, and meant living with what
+                // that decoder will not do: it refuses a top-level fragment, which is what a
+                // `String`-backed enum is stored as, and it applies its numeric coercions only at
+                // the top rather than at every depth.
+                guard let propertyList = PropertyListValue(propertyList: value) else {
+                    // Nothing the value model can carry, which takes a 128-bit stored number to
+                    // reach. The cast is unlikely to do better — on Linux such a value arrives as a
+                    // type private to swift-corelibs-foundation, so it answers nothing — but it
+                    // costs a line and is the only thing left to try.
+                    return value as? T
                 }
 
-                return value as? T
+                do {
+                    // Bound as `T?` rather than `T` so that `isNil` can see through it — the
+                    // conformance is on `Optional`, and a `T` the compiler knows nothing about
+                    // carries no such member. It is the type this returns anyway.
+                    let decoded: T? = try PropertyListValueDecoder().decode(T.self, from: propertyList)
+
+                    // A `T` that is itself optional and decoded to `nil` has to read as *missing*,
+                    // not as present-and-nil: `.some(.none)` is what the `??` in
+                    // ``subscript(_:type:default:)`` takes for a value and never replaces, so the
+                    // caller's default would be lost. Only a stored sentinel decodes this way, and
+                    // one standing where a whole value should be says the same thing an absent key
+                    // does.
+                    guard decoded.isNil == false else { return nil }
+
+                    return decoded
+                } catch DecodingError.valueNotFound {
+                    // Where the stored object can answer better than the decoder. A property list
+                    // has no null, so a `nil` inside one is written as the string `$null`, and
+                    // reading that string back as the `nil` it stands for is right until the string
+                    // is genuinely `$null` — at which point only what was stored still knows.
+                    //
+                    // `valueNotFound` also covers an unkeyed container run off its end, which the
+                    // cast has nothing better to say about: it fails too, and the result is the
+                    // `nil` the other branch would have returned.
+                    return value as? T
+                } catch {
+                    // Every other refusal is a real one, and casting would put back exactly what
+                    // the decoder just turned down. It is also where the two platforms would stop
+                    // agreeing: `NSNumber` bridging answers `as? Int` for a stored `<true/>` with
+                    // `1`, while swift-corelibs-foundation hands back a `Bool` that matches
+                    // nothing. A property list tells those two apart, so this does too.
+                    return nil
+                }
             }
         }
         set {
@@ -194,21 +160,14 @@ extension UserDefaults {
                 self.set(newValue as Any, forKey: defaultName)
             default:
                 do {
-                    // `PropertyListEncoder` refuses a top-level fragment, and a `String`-backed enum
-                    // encodes to exactly that, so the value rides inside a single-element array and
-                    // is unwrapped again before it is stored. The array is transport and never
-                    // storage: what lands under the key is the value's own property-list shape.
-                    let data = try PropertyListEncoder().encode([newValue])
-                    let list = try unsafe PropertyListSerialization.propertyList(from: data, format: nil)
+                    // Built once, rather than encoded to `Data` and parsed back to get at the
+                    // objects inside. It also takes the value as it is: `PropertyListEncoder`
+                    // refuses a top-level fragment, and a `String`-backed enum encodes to exactly
+                    // that, so reaching it meant sending the value through a single-element array
+                    // and unwrapping the result again.
+                    let encoded = try PropertyListValueEncoder().encode(newValue)
 
-                    guard let encoded = (list as? [Any])?.first else {
-                        // Unreachable: what went in was a single-element array, so what comes back
-                        // is one.
-                        assertionFailure("encoding a single-element array did not produce an array")
-                        return
-                    }
-
-                    self.set(encoded, forKey: defaultName)
+                    self.set(encoded.propertyList, forKey: defaultName)
                 } catch {
                     // Interpolated, not localized: `EncodingError.localizedDescription` is a generic
                     // "operation couldn't be completed" and drops the `codingPath` that says which
