@@ -3,12 +3,14 @@
 
 name: CI
 
-# `push` is limited to the default branch; see the note in apple-platforms.yml. A pull request from
-# a branch here would otherwise run every row twice for the same commit.
+# Pushes only fire on the branches git-flow keeps around: the two long-lived ones plus the
+# release-prep pair. Short-lived feature branches are covered by the pull_request trigger when they
+# open against one of these, so listing them here would only run the same commit twice.
 on:
   push:
-    branches: [main]
+    branches: [main, develop, "release/**", "hotfix/**"]
   pull_request:
+    branches: [main, develop, "release/**", "hotfix/**"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -17,9 +19,16 @@ concurrency:
 jobs:
   apple:
     name: ${{ matrix.name }}
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 30
+    # The toolchain is pinned rather than taken from whatever the image currently defaults to. The
+    # manifest declares tools version 6.3, so an image roll moving the default Xcode back would stop
+    # the package resolving at all rather than failing partway through a build — and
+    # apple-platforms.yml pins this exact Xcode, so leaving this one floating meant one repository
+    # compiling with two toolchains and saying so nowhere. The runner keeps a minor-level symlink at
+    # the current patch (Xcode_26.6.app -> Xcode_26.6.1.app), so this survives patch churn.
     env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
       SANITIZE: ${{ matrix.sanitize }}
     strategy:
       fail-fast: false
@@ -47,8 +56,13 @@ jobs:
           - name: "macOS · TSan"
             configuration: release
             sanitize: thread
+    # Verbose output is gated on RUNNER_DEBUG throughout: it is only present when a run has step
+    # debug logging enabled — through the ACTIONS_STEP_DEBUG variable or the re-run checkbox — and
+    # then holds "1". Ordinary runs stay terse; re-running the same commit in debug mode brings the
+    # detail back without editing the workflow. The variable cannot be folded into a job-level env:
+    # the runner context is unavailable there.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Toolchain
         run: swift --version
 
@@ -61,10 +75,10 @@ jobs:
       # nobody reads — and `XCTCPUMetric` wants hardware performance counters that a virtualized
       # runner may not have. Compiling them is the part worth keeping.
       - name: Build
-        run: swift build -c ${{ matrix.configuration }} ${SANITIZE:+--sanitize "$SANITIZE"}
+        run: swift build -c ${{ matrix.configuration }} ${RUNNER_DEBUG:+-v} ${SANITIZE:+--sanitize "$SANITIZE"}
       - name: Test
         run: |
-          swift test -c ${{ matrix.configuration }} -Xswiftc -enable-testing \
+          swift test -c ${{ matrix.configuration }} -Xswiftc -enable-testing ${RUNNER_DEBUG:+-v} \
             --skip PerformanceTests ${SANITIZE:+--sanitize "$SANITIZE"}
 
       # The trait set is part of the package's public interface, so the configuration a consumer
@@ -72,14 +86,19 @@ jobs:
       # targets left out, and nothing about that changes what a race would be.
       - name: Build without default traits
         if: ${{ !matrix.sanitize }}
-        run: swift build -c ${{ matrix.configuration }} --disable-default-traits
+        run: swift build -c ${{ matrix.configuration }} --disable-default-traits ${RUNNER_DEBUG:+-v}
 
   linux:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
-    container: swift:6.3
+    # The toolchain comes from the image rather than from an installer, which pins it without a
+    # download step and lets the musl row below pin harder than the others by naming a different
+    # tag. A bare minor floats to its newest patch, the same way `swiftly install 6.3` would.
+    container: swift:${{ matrix.swift }}
     timeout-minutes: 30
     env:
+      SWIFT_SDK: ${{ matrix.swift_sdk }}
+      BUILD_TARGET: ${{ matrix.target }}
       SANITIZE: ${{ matrix.sanitize }}
     # Reading and writing works here; observing does not. swift-corelibs-foundation has no KVO, and
     # posts `didChangeNotification` only for whole-domain changes rather than for a
@@ -88,22 +107,66 @@ jobs:
     # regressing on a platform nobody develops on.
     strategy:
       fail-fast: false
+      # The musl row cross-compiles against the static Linux SDK, which is the other C library the
+      # package can land on and the one whose Foundation nobody here builds by accident. The SDK is
+      # only compatible with the exact toolchain version that built it, so unlike the floating rows
+      # above this one names a patch; the tag, the URL, and the checksum are bumped together.
+      #
+      # It also names a target, which is what confines it to what actually ships. That SDK carries
+      # no testing library, and `UserDefaultsKitTestSupport` is an ordinary target rather than a
+      # test one — several test targets share it — so a plain `swift build` reaches it and stops on
+      # its `import Testing`. Building the umbrella instead reaches exactly what a consumer's
+      # `import UserDefaultsKit` does, which is the claim this row was added to make.
+      #
+      # `--target` rather than `--product`: the library is declared without a link type, which makes
+      # it an automatic product, and `--product` refuses those with a warning and builds everything
+      # anyway — the failure this row was already having, minus the error saying so.
       matrix:
         include:
           - name: "Linux"
+            swift: "6.3"
             configuration: release
           - name: "Linux · Debug"
+            swift: "6.3"
             configuration: debug
           - name: "Linux · TSan"
+            swift: "6.3"
             configuration: release
             sanitize: thread
+          - name: "Linux · musl"
+            swift: "6.3.3"
+            configuration: release
+            swift_sdk: x86_64-swift-linux-musl
+            target: UserDefaultsKit
+            static_sdk_url: https://download.swift.org/swift-6.3.3-release/static-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz
+            static_sdk_checksum: 87c3eaf908e67c0e13a84367119e12273cec1d2cd3d81f7d74bb36722d6b607b
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Toolchain
         run: swift --version
+
+      - name: Install the static Linux SDK
+        if: matrix.swift_sdk
+        run: swift sdk install "${{ matrix.static_sdk_url }}" --checksum "${{ matrix.static_sdk_checksum }}"
+
       - name: Build
-        run: swift build -c ${{ matrix.configuration }} ${SANITIZE:+--sanitize "$SANITIZE"}
-      - name: Test
         run: |
-          swift test -c ${{ matrix.configuration }} -Xswiftc -enable-testing \
+          swift build -c ${{ matrix.configuration }} ${RUNNER_DEBUG:+-v} \
+            ${BUILD_TARGET:+--target "$BUILD_TARGET"} \
+            ${SWIFT_SDK:+--swift-sdk "$SWIFT_SDK"} ${SANITIZE:+--sanitize "$SANITIZE"}
+
+      # The musl row stops at the build above: the static Linux SDK ships no testing library —
+      # neither swift-testing nor XCTest — so that C library is compiled here and can only be run
+      # against where a full toolchain exists.
+      - name: Test
+        if: ${{ !matrix.swift_sdk }}
+        run: |
+          swift test -c ${{ matrix.configuration }} -Xswiftc -enable-testing ${RUNNER_DEBUG:+-v} \
             --skip PerformanceTests ${SANITIZE:+--sanitize "$SANITIZE"}
+
+      - name: Build without default traits
+        if: ${{ !matrix.sanitize }}
+        run: |
+          swift build -c ${{ matrix.configuration }} --disable-default-traits ${RUNNER_DEBUG:+-v} \
+            ${BUILD_TARGET:+--target "$BUILD_TARGET"} \
+            ${SWIFT_SDK:+--swift-sdk "$SWIFT_SDK"}

@@ -21,14 +21,15 @@
 
 name: Apple Platforms
 
-# `push` is limited to the default branch. A pull request from a branch in this repository fires
-# both events for the same commit, and `concurrency` cannot collapse them because the two carry
-# different `github.ref` values — so an unfiltered `push` would run this ten-row matrix twice for
-# every commit under review.
+# Pushes only fire on the branches git-flow keeps around: the two long-lived ones plus the
+# release-prep pair. Short-lived feature branches are covered by the pull_request trigger when they
+# open against one of these, so listing them here would only run this matrix twice for the same
+# commit.
 on:
   push:
-    branches: [main]
+    branches: [main, develop, "release/**", "hotfix/**"]
   pull_request:
+    branches: [main, develop, "release/**", "hotfix/**"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -36,10 +37,10 @@ concurrency:
 
 jobs:
   build:
-    name: ${{ matrix.platform.name }}
+    name: ${{ matrix.platform.name }} · ${{ matrix.configuration }}
     runs-on: macos-26
     # Nothing here should take minutes, and the alternative backstop is GitHub's 360-minute default.
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       DEVELOPER_DIR: ${{ matrix.xcode.developer_dir }}
     strategy:
@@ -51,10 +52,17 @@ jobs:
       # test_destination where the platform names itself, simulator_runtime where a device has to be
       # looked up. The device rows carry neither and stop after the build, since nothing is attached
       # to a runner to run their binaries on.
+      #
+      # Crossed with the configuration axis for the reason ci.yml states at length: debug and
+      # release are not the same program, and only one of them is what ships. Here the crossing buys
+      # something that axis cannot buy on the host — the watchOS device row's 32-bit narrowing is
+      # compiled nowhere else, and an optimizer is entitled to break a narrowing that a debug build
+      # gets right. Nothing else in the matrix distinguishes the two, so the pair simply doubles.
       matrix:
         xcode:
           - name: "Swift 6.3.3"
             developer_dir: /Applications/Xcode_26.6.app/Contents/Developer
+        configuration: [Debug, Release]
         platform:
           # Both name their variant. `generic/platform=macOS` alone matches the Catalyst
           # destination as well, and xcodebuild answers that by taking "the first of multiple
@@ -90,7 +98,7 @@ jobs:
             destination: "generic/platform=visionOS Simulator"
             simulator_runtime: xrOS
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: xcodebuild -version
 
       # build-for-testing rather than build: it compiles the test targets as well, which is where
@@ -100,14 +108,22 @@ jobs:
       #
       # Both steps name the same derived data, so the run reuses what this built.
       #
+      # The configuration is stated rather than left to the scheme. Nothing here commits a scheme,
+      # so `-scheme UserDefaultsKit` resolves to the one SwiftPM generates, whose build and test
+      # actions default to Debug — which meant every row was a debug row and the file said so
+      # nowhere.
+      #
       # Testability has to be asked for because the test targets import their modules `@testable`.
-      # The default traits are left on: a consumer opting out is a different configuration, and
-      # ci.yml is where that one is compiled.
+      # In Debug it is already on; in Release it is not, and it is what makes the two rows differ by
+      # the optimizer alone rather than by what the test targets can see. The default traits are
+      # left on: a consumer opting out is a different configuration, and ci.yml is where that one is
+      # compiled.
       - name: xcodebuild build-for-testing
         run: |
           xcodebuild build-for-testing \
             -scheme UserDefaultsKit \
             -destination '${{ matrix.platform.destination }}' \
+            -configuration ${{ matrix.configuration }} \
             SWIFT_ENABLE_TESTABILITY=YES \
             -derivedDataPath "$RUNNER_TEMP/DerivedData"
 
@@ -129,10 +145,18 @@ jobs:
             echo "TEST_DESTINATION=${{ matrix.platform.test_destination }}" >> "$GITHUB_ENV"
           fi
 
+      # The measurement suites are skipped for the reason ci.yml skips them: a release row would
+      # otherwise execute `measure` blocks that no baseline can fail and nobody reads, on a
+      # simulator, where `XCTCPUMetric` wants hardware performance counters it may not have. Stated
+      # unconditionally rather than only on the release rows — in debug they already skip
+      # themselves, so naming them twice would be the same instruction written in two places.
       - name: xcodebuild test-without-building
         if: env.TEST_DESTINATION
         run: |
           xcodebuild test-without-building \
             -scheme UserDefaultsKit \
             -destination "$TEST_DESTINATION" \
+            -configuration ${{ matrix.configuration }} \
+            -skip-testing:UserDefaultsKitCoreTests/UserDefaultsPerformanceTests \
+            -skip-testing:UserDefaultsKitPropertyListTests/PropertyListCoderPerformanceTests \
             -derivedDataPath "$RUNNER_TEMP/DerivedData"
