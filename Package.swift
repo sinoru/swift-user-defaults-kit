@@ -92,7 +92,7 @@ let targets: [PackageDescription.Target] = [
     ),
     .testTarget(
         name: "UserDefaultsKitPropertyListTests",
-        dependencies: ["UserDefaultsKitPropertyList"],
+        dependencies: ["UserDefaultsKitTestSupport", "UserDefaultsKitPropertyList"],
         swiftSettings: commonSwiftSettings,
     ),
     .testTarget(

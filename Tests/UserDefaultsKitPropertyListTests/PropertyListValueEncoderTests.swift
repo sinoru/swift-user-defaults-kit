@@ -5,6 +5,7 @@
 
 import Foundation
 import Testing
+import UserDefaultsKitTestSupport
 
 import UserDefaultsKitPropertyList
 
@@ -12,18 +13,6 @@ import UserDefaultsKitPropertyList
 struct PropertyListValueEncoderTests {
     private let encoder = PropertyListValueEncoder()
     private let decoder = PropertyListValueDecoder()
-
-    private struct Profile: Codable, Equatable {
-        var name: String
-        var age: Int
-        var tags: [String]
-        var nickname: String?
-    }
-
-    private enum Theme: String, Codable {
-        case light
-        case dark
-    }
 
     // MARK: - Scalars
 
@@ -271,6 +260,69 @@ struct PropertyListValueEncoderTests {
         )
     }
 
+    // MARK: - Container misuse
+
+    // A key that already holds a value cannot also hold a container: honouring the second ask means
+    // dropping what the first one wrote, and doing it silently. Refusing is a `preconditionFailure`,
+    // which takes the process with it — so these run in a child one, which is the only way a trap is
+    // testable at all. `precondition` survives `-O`, so the release rows in CI execute them rather
+    // than compiling them away.
+    //
+    // Only where a child process can be spawned. The platforms left out are the ones the testing
+    // library cannot do it on, not ones where the precondition does not hold.
+    #if os(macOS) || os(Linux) || os(FreeBSD) || os(OpenBSD) || os(Windows)
+    @Test
+    func refusesAContainerForAKeyThatAlreadyHoldsAValue() async {
+        await #expect(processExitsWith: .failure) {
+            struct Clash: Encodable {
+                enum CodingKeys: String, CodingKey {
+                    case k
+                }
+
+                func encode(to encoder: any Encoder) throws {
+                    var container = encoder.container(keyedBy: CodingKeys.self)
+                    try container.encode(1, forKey: .k)
+
+                    var nested = container.nestedUnkeyedContainer(forKey: .k)
+                    try nested.encode(2)
+                }
+            }
+
+            _ = try? PropertyListValueEncoder().encode(Clash())
+        }
+    }
+
+    // And the other pairing the same storage has to refuse: a key holding one kind of container
+    // cannot be asked for the other. Two cases, two messages, one rule — this is what says the two
+    // agree.
+    @Test
+    func refusesAContainerOfTheOtherKindForTheSameKey() async {
+        await #expect(processExitsWith: .failure) {
+            struct Clash: Encodable {
+                enum CodingKeys: String, CodingKey {
+                    case k
+                }
+
+                enum Nested: String, CodingKey {
+                    case x
+                }
+
+                func encode(to encoder: any Encoder) throws {
+                    var container = encoder.container(keyedBy: CodingKeys.self)
+
+                    var array = container.nestedUnkeyedContainer(forKey: .k)
+                    try array.encode(1)
+
+                    var dictionary = container.nestedContainer(keyedBy: Nested.self, forKey: .k)
+                    try dictionary.encode(2, forKey: .x)
+                }
+            }
+
+            _ = try? PropertyListValueEncoder().encode(Clash())
+        }
+    }
+    #endif
+
     // MARK: - Errors
 
     @Test
@@ -289,6 +341,12 @@ struct PropertyListValueEncoderTests {
     // standard library's own default refuses with `Encoder has not implemented support for Int128`.
     // Pinned because the alternative — a value quietly losing its top half — is the failure that
     // would not announce itself.
+    //
+    // visionOS is spelled out even though it need not be: Swift derives a missing visionOS
+    // availability from the iOS one, so `iOS 18.0` alone already satisfies `Int128`'s `visionOS 2.0`
+    // — dropping the iOS entry is what makes a visionOS build fail, not dropping this. Saying it
+    // anyway means a reader can check the line against the standard library without knowing that
+    // rule.
     @Test
     @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
     func refusesAnIntegerWiderThanThePropertyListFormatHas() {

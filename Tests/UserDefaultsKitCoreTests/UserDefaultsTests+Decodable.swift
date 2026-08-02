@@ -72,7 +72,31 @@ final class UserDefaultsDecodableTests: UserDefaultsTestCase {
 
         #expect(userDefaults["url", type: URL.self] == url)
     }
+
+    // And what a non-file URL turns into, pinned so the loss is a stated result rather than a
+    // surprise. `set(_ url:forKey:)` keeps `url.path` — `/blog` — and `url(forKey:)` reads it back
+    // as a file path. Nothing here can intervene: the scheme and host are gone before the value
+    // reaches this package.
+    @Test
+    func losesTheSchemeAndHostOfANonFileURL() throws {
+        let url = try #require(URL(string: "https://swift.org/blog"))
+
+        userDefaults["url"] = url
+
+        #expect(userDefaults["url", type: URL.self] == URL(fileURLWithPath: "/blog"))
+    }
     #endif
+
+    // The way around it, on both platforms: a `URL` inside a value is encoded rather than handed to
+    // `set(_:forKey:)`, so it keeps everything.
+    @Test
+    func readsANonFileURLInsideAValue() throws {
+        let url = try #require(URL(string: "https://swift.org/blog"))
+
+        userDefaults["pages"] = [url]
+
+        #expect(userDefaults["pages", type: [URL].self] == [url])
+    }
 
     @Test
     func readsEncodedValuesWrittenByTheKit() throws {
@@ -244,6 +268,19 @@ final class UserDefaultsDecodableTests: UserDefaultsTestCase {
         #expect(userDefaults["sentinel", default: Int?(7)] == 7)
         #expect(userDefaults["sentinel", default: Bool?(true)] == true)
         #expect(userDefaults["sentinel", default: 7] == 7)
+    }
+
+    // A `Codable` type is allowed to mean something concrete by `encodeNil()`, and the sentinel is
+    // how that reaches storage. Reading it back as missing would be reading the *encoder's* meaning
+    // rather than the type's — so only a `T` that has nothing else to make of it, which is
+    // `Optional` and nothing else, is answered before the decoder is asked.
+    @Test
+    func readsBackATypeThatMeansSomethingByEncodingNil() {
+        userDefaults["value"] = NilEncodingValue.absent
+
+        #expect(userDefaults.object(forKey: "value") as? String == "$null")
+        #expect(userDefaults["value", type: NilEncodingValue.self] == .absent)
+        #expect(userDefaults["value", default: NilEncodingValue.present(99)] == .absent)
     }
 
     // And the other side of it: a string that genuinely is `$null` has to survive. Decoding one

@@ -1,7 +1,13 @@
+# Builds and tests the package through SwiftPM. Apple platform coverage lives in
+# apple-platforms.yml, which drives the same manifest through the Xcode build system instead.
+
 name: CI
 
+# `push` is limited to the default branch; see the note in apple-platforms.yml. A pull request from
+# a branch here would otherwise run every row twice for the same commit.
 on:
   push:
+    branches: [main]
   pull_request:
 
 concurrency:
@@ -10,35 +16,94 @@ concurrency:
 
 jobs:
   apple:
-    name: macOS
+    name: ${{ matrix.name }}
     runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      SANITIZE: ${{ matrix.sanitize }}
+    strategy:
+      fail-fast: false
+      # A sanitized build is a different build rather than a different way of running one, so it is
+      # a row instead of an extra step. What it watches here is not hypothetical: the change
+      # publisher hands a `CurrentValueSubject` a `nonisolated(unsafe)` opt-out and says in its own
+      # comment that Combine never documented `send(_:)` as callable from any thread, so that is an
+      # assumption rather than a guarantee. KVO delivers on whichever thread performed the write,
+      # which is what puts two of them there at once. One row per platform, because the observation
+      # backend is not the same on both — KVO here, whole-domain notifications there.
+      # Both configurations, because they are not the same program. Release is what ships and the
+      # only one Swift's default cross-module optimization applies to — this package now has a
+      # module boundary that every read and write crosses, and only there is the code specialized
+      # across it. Debug is where `assertionFailure` still exists: it is compiled out under `-O`,
+      # which was measured rather than assumed, so the encode failure the setter reports is
+      # reachable in that row alone. `precondition` survives both, which is why the exit tests do.
+      #
+      # Debug is also the only row that compiles the `#if DEBUG` half of the measurement suites.
+      matrix:
+        include:
+          - name: "macOS"
+            configuration: release
+          - name: "macOS · Debug"
+            configuration: debug
+          - name: "macOS · TSan"
+            configuration: release
+            sanitize: thread
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
         run: swift --version
+
+      # The build step is the library exactly as a consumer gets it. The test step cannot be:
+      # `@testable import` needs `-enable-testing`, which publishes internal symbols and so costs
+      # the optimizer some of what it may assume.
+      #
+      # The measurement suites are skipped rather than run. They skip themselves in debug, but a
+      # release row would otherwise execute seven `measure` blocks that no baseline can fail and
+      # nobody reads — and `XCTCPUMetric` wants hardware performance counters that a virtualized
+      # runner may not have. Compiling them is the part worth keeping.
       - name: Build
-        run: swift build --build-tests
+        run: swift build -c ${{ matrix.configuration }} ${SANITIZE:+--sanitize "$SANITIZE"}
       - name: Test
-        run: swift test
+        run: |
+          swift test -c ${{ matrix.configuration }} -Xswiftc -enable-testing \
+            --skip PerformanceTests ${SANITIZE:+--sanitize "$SANITIZE"}
+
       # The trait set is part of the package's public interface, so the configuration a consumer
-      # gets by opting out has to keep compiling.
+      # gets by opting out has to keep compiling. Not sanitized: it is the same code with two
+      # targets left out, and nothing about that changes what a race would be.
       - name: Build without default traits
-        run: swift build --disable-default-traits
+        if: ${{ !matrix.sanitize }}
+        run: swift build -c ${{ matrix.configuration }} --disable-default-traits
 
   linux:
-    name: Linux
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
     container: swift:6.3
+    timeout-minutes: 30
+    env:
+      SANITIZE: ${{ matrix.sanitize }}
     # Reading and writing works here; observing does not. swift-corelibs-foundation has no KVO, and
     # posts `didChangeNotification` only for whole-domain changes rather than for a
     # `set(_:forKey:)` write, so `UserDefaults.Observation` and `UserDefault.values` compile out —
     # this job is what keeps that boundary from drifting, and what would catch the storage half
     # regressing on a platform nobody develops on.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "Linux"
+            configuration: release
+          - name: "Linux · Debug"
+            configuration: debug
+          - name: "Linux · TSan"
+            configuration: release
+            sanitize: thread
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
         run: swift --version
       - name: Build
-        run: swift build --build-tests
+        run: swift build -c ${{ matrix.configuration }} ${SANITIZE:+--sanitize "$SANITIZE"}
       - name: Test
-        run: swift test
+        run: |
+          swift test -c ${{ matrix.configuration }} -Xswiftc -enable-testing \
+            --skip PerformanceTests ${SANITIZE:+--sanitize "$SANITIZE"}

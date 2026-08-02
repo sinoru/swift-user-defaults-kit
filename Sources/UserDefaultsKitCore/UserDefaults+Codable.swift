@@ -22,6 +22,13 @@ extension UserDefaults {
     /// legible to `defaults(1)`, to `@AppStorage`, and to any other process sharing the domain as
     /// one it did — which is the whole point.
     ///
+    /// One kind of value is not encoded here and so is not covered by that: a top-level `URL` is
+    /// handed to `set(_:forKey:)`, which stores what it stores. On Darwin that is a path for a file
+    /// URL and a keyed archive for anything else — the one opaque thing a key written through this
+    /// can hold. Writing it any other way would mean `url(forKey:)` and `@AppStorage` could no
+    /// longer read it, which is a worse trade than the blob. A `URL` *inside* a value takes the
+    /// ordinary path and lands as a dictionary on both platforms.
+    ///
     /// ```swift
     /// userDefaults["username"] = "anonymous"          // stored as a string
     /// userDefaults["profile"] = Profile(name: "Kim")  // stored as a dictionary
@@ -49,12 +56,18 @@ extension UserDefaults {
     /// - A value of an unrelated kind reads back as `nil`, letting a caller's default take over.
     ///   This is deliberately stricter than `integer(forKey:)` and its siblings, which flatten a
     ///   mismatch into `0`.
-    /// - `String` and `URL` inherit the coercions of `string(forKey:)` and `url(forKey:)`. Reading a
-    ///   stored `123` as a `String` therefore yields `"123"`, while the reverse yields `nil`.
+    /// - `String` and `URL` inherit the coercions of `string(forKey:)` and `url(forKey:)`, and only
+    ///   at the top: unlike the numeric rules above, these are Foundation's accessors rather than
+    ///   this package's, and there is no accessor to inherit from inside a collection. Reading a
+    ///   stored `123` as a `String` therefore yields `"123"` while a stored `[123]` read as
+    ///   `[String]` yields `nil`, and a top-level `URL` and one inside a value are stored in
+    ///   different shapes that do not read each other.
     ///   Inheriting them costs `URL` away from Darwin: swift-corelibs-foundation's
     ///   `set(_:forKey:)` keeps only `url.path`, dropping the scheme and host before anything here
     ///   can see them, and its `url(forKey:)` reads whatever is left back as a file path. Only a
-    ///   file URL survives the round trip there.
+    ///   file URL survives the round trip there — `https://swift.org/blog` comes back as
+    ///   `file:///blog`. A `URL` inside a value loses nothing on either platform, since that one is
+    ///   encoded rather than handed over.
     /// - `Data` means stored data. A value this package encoded into a dictionary or a string does
     ///   not read back as the bytes it was built from.
     ///
@@ -104,26 +117,32 @@ extension UserDefaults {
                     return value as? T
                 }
 
+                // A sentinel standing where the whole value should be says what an absent key says —
+                // but only to a `T` that has nothing else to make of it. A type that handles
+                // `decodeNil()` itself means something concrete by it, and has to be left to say so;
+                // only `Optional` decodes it to a `nil` that would then come back as `.some(.none)`,
+                // which the `??` in ``subscript(_:type:default:)`` takes for a value and never
+                // replaces, losing the caller's default.
+                //
+                // The two tests are in this order because of what they cost. Asking whether the
+                // stored value is the sentinel is one comparison against something already in hand;
+                // asking whether `T` is optional is a conformance lookup, and putting it second
+                // means only a stored sentinel ever pays for it. Asking the *decoded result*
+                // instead — which is what this did first — put a dynamic cast to an existential on
+                // every read of every type.
+                if propertyList.isNull, T.self is any OptionalProtocol.Type {
+                    return nil
+                }
+
                 do {
-                    // Bound as `T?` rather than `T` so that `isNil` can see through it — the
-                    // conformance is on `Optional`, and a `T` the compiler knows nothing about
-                    // carries no such member. It is the type this returns anyway.
-                    let decoded: T? = try PropertyListValueDecoder().decode(T.self, from: propertyList)
-
-                    // A `T` that is itself optional and decoded to `nil` has to read as *missing*,
-                    // not as present-and-nil: `.some(.none)` is what the `??` in
-                    // ``subscript(_:type:default:)`` takes for a value and never replaces, so the
-                    // caller's default would be lost. Only a stored sentinel decodes this way, and
-                    // one standing where a whole value should be says the same thing an absent key
-                    // does.
-                    guard decoded.isNil == false else { return nil }
-
-                    return decoded
+                    return try PropertyListValueDecoder().decode(T.self, from: propertyList)
                 } catch DecodingError.valueNotFound {
-                    // Where the stored object can answer better than the decoder. A property list
-                    // has no null, so a `nil` inside one is written as the string `$null`, and
-                    // reading that string back as the `nil` it stands for is right until the string
-                    // is genuinely `$null` — at which point only what was stored still knows.
+                    // Where the stored object can answer better than the decoder, which now means
+                    // a sentinel found *inside* a value rather than as the whole of one: a stored
+                    // `["a", "$null", "b"]` read as `[String]` is three strings to the cast and a
+                    // missing element to the decoder, and the cast is the one that keeps a string
+                    // which genuinely is `$null`. The guard above already answered the whole-value
+                    // case.
                     //
                     // `valueNotFound` also covers an unkeyed container run off its end, which the
                     // cast has nothing better to say about: it fails too, and the result is the

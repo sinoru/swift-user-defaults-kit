@@ -1,0 +1,138 @@
+# Builds the package for every Apple platform it declares support for, through the Xcode build
+# system, and runs its tests wherever a runner can boot the destination.
+#
+# A different axis from ci.yml rather than a duplicate of it, and the reason is plain: `swift build`
+# compiles for the host and nothing else, so the only Apple platform anyone ever compiled was macOS.
+# `Package.swift` claims five more. A claim that is never compiled is a guess, and this is what turns
+# it into a fact — including the two targets that exist only on Apple platforms, `UserDefaultsKit`'s
+# Combine and SwiftUI halves, whose availability rules are not the same on every one.
+#
+# The watchOS *device* row is the only place `Int` is 32 bits, which is the width
+# `PropertyListValue.propertyList` narrows against. Nothing can be run there — no runner has a watch
+# attached — so this compiles that configuration and stops, which is still more than nothing was
+# doing before.
+#
+# What this deliberately does not do is pin old OS runtimes the way the sibling package does. That
+# one branches on OS version at run time and back-deploys metadata, so supporting a release is a
+# claim only that release can settle. Nothing here has an `#available` in it, and its one
+# `@available` is on a test rather than on shipped behaviour: what this package does is the same on
+# every version of a platform, so a second version of one would repeat a multi-gigabyte download to
+# say nothing.
+
+name: Apple Platforms
+
+# `push` is limited to the default branch. A pull request from a branch in this repository fires
+# both events for the same commit, and `concurrency` cannot collapse them because the two carry
+# different `github.ref` values — so an unfiltered `push` would run this ten-row matrix twice for
+# every commit under review.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.platform.name }}
+    runs-on: macos-26
+    # Nothing here should take minutes, and the alternative backstop is GitHub's 360-minute default.
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: ${{ matrix.xcode.developer_dir }}
+    strategy:
+      fail-fast: false
+      # Device and simulator are separate SDKs and separate target triples, so they fail
+      # independently — and on watchOS they take opposite sides of the pointer width above.
+      #
+      # A row that can run its tests says how to name a destination xcodebuild can launch:
+      # test_destination where the platform names itself, simulator_runtime where a device has to be
+      # looked up. The device rows carry neither and stop after the build, since nothing is attached
+      # to a runner to run their binaries on.
+      matrix:
+        xcode:
+          - name: "Swift 6.3.3"
+            developer_dir: /Applications/Xcode_26.6.app/Contents/Developer
+        platform:
+          # Both name their variant. `generic/platform=macOS` alone matches the Catalyst
+          # destination as well, and xcodebuild answers that by taking "the first of multiple
+          # matching destinations" in an order it does not publish — so the row whose whole purpose
+          # is to be the *other* axis could silently become this one, and stay green while doing it.
+          # The test destination needs an architecture on top to come out unambiguous.
+          - name: "macOS"
+            destination: "generic/platform=macOS,variant=macos"
+            test_destination: "platform=macOS,arch=arm64,variant=macos"
+          - name: "Mac Catalyst"
+            destination: "generic/platform=macOS,variant=Mac Catalyst"
+            test_destination: "platform=macOS,arch=arm64,variant=Mac Catalyst"
+          - name: "iOS"
+            destination: "generic/platform=iOS"
+          - name: "iOS Simulator"
+            destination: "generic/platform=iOS Simulator"
+            simulator_runtime: iOS
+          - name: "tvOS"
+            destination: "generic/platform=tvOS"
+          - name: "tvOS Simulator"
+            destination: "generic/platform=tvOS Simulator"
+            simulator_runtime: tvOS
+          - name: "watchOS"
+            destination: "generic/platform=watchOS"
+          - name: "watchOS Simulator"
+            destination: "generic/platform=watchOS Simulator"
+            simulator_runtime: watchOS
+          - name: "visionOS"
+            destination: "generic/platform=visionOS"
+          # visionOS answers to xrOS in CoreSimulator's runtime identifiers, which is the spelling
+          # the lookup below matches against.
+          - name: "visionOS Simulator"
+            destination: "generic/platform=visionOS Simulator"
+            simulator_runtime: xrOS
+    steps:
+      - uses: actions/checkout@v4
+      - run: xcodebuild -version
+
+      # build-for-testing rather than build: it compiles the test targets as well, which is where
+      # the availability annotations and the 32-bit narrowing are actually exercised, and a generic
+      # destination covers every architecture its SDK supports where the concrete one the run below
+      # needs does not.
+      #
+      # Both steps name the same derived data, so the run reuses what this built.
+      #
+      # Testability has to be asked for because the test targets import their modules `@testable`.
+      # The default traits are left on: a consumer opting out is a different configuration, and
+      # ci.yml is where that one is compiled.
+      - name: xcodebuild build-for-testing
+        run: |
+          xcodebuild build-for-testing \
+            -scheme UserDefaultsKit \
+            -destination '${{ matrix.platform.destination }}' \
+            SWIFT_ENABLE_TESTABILITY=YES \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData"
+
+      # Tests need a destination xcodebuild can launch, which rules out the generic ones above.
+      # macOS and Mac Catalyst name themselves; a simulator row states its runtime and this picks a
+      # device out of the copy that this Xcode ships, because the runner image's device list turns
+      # over with every release and a hardcoded name would rot. jq fails the step rather than
+      # resolving to a null id if the runtime is missing.
+      #
+      # A row that can run nothing leaves the variable empty, and the step after this drops out.
+      - name: Resolve the test destination
+        run: |
+          if [ -n "${{ matrix.platform.simulator_runtime }}" ]; then
+            udid=$(xcrun simctl list devices available --json | jq -er \
+              --arg prefix "com.apple.CoreSimulator.SimRuntime.${{ matrix.platform.simulator_runtime }}" \
+              '[.devices | to_entries[] | select(.key | startswith($prefix)) | .value[]][0].udid')
+            echo "TEST_DESTINATION=id=$udid" >> "$GITHUB_ENV"
+          else
+            echo "TEST_DESTINATION=${{ matrix.platform.test_destination }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: xcodebuild test-without-building
+        if: env.TEST_DESTINATION
+        run: |
+          xcodebuild test-without-building \
+            -scheme UserDefaultsKit \
+            -destination "$TEST_DESTINATION" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData"

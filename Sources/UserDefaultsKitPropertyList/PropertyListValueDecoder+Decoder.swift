@@ -205,7 +205,10 @@ extension PropertyListValueDecoder._Decoder {
         }
 
         guard let converted else {
-            throw dataCorrupted("Property list number <\(value)> does not fit in \(type).", forKey: key)
+            throw dataCorrupted(
+                "Property list number <\(value.numberDescription)> does not fit in \(type).",
+                forKey: key
+            )
         }
 
         return converted
@@ -268,6 +271,13 @@ extension PropertyListValueDecoder._Decoder {
     /// `Date` and `Data` are settled here rather than left to their own `Decodable` conformances,
     /// which would look for the numbers and bytes those encode to in a format that has neither. A
     /// property list stores both natively, and this is where that gets honoured.
+    ///
+    /// Nothing else is short-circuited here, though it was tried. Sending `Int`, `String` and the
+    /// rest straight to their unwrap instead of through `T(from: self)` skips a single value
+    /// container and a `Decodable` dispatch, and measured as a difference smaller than the variation
+    /// between two runs of the same benchmark. What a scalar read actually spends its time on is
+    /// getting the stored object into a ``PropertyListValue`` at all; see
+    /// ``PropertyListValue/init(propertyList:)``.
     func unwrap<T>(as type: T.Type) throws -> T where T: Decodable {
         if type == Date.self {
             // Safe: the branch is only entered when `T` is `Date`.

@@ -15,6 +15,20 @@ extension PropertyListValue {
     /// - Parameter value: A property list value. Anything else — a type the format cannot hold, or a
     ///   collection with one nested somewhere inside it — is not one, and yields `nil`.
     package init?(propertyList value: Any) {
+        // Numbers first, and not for tidiness. Each `as?` against an `Any` runs the dynamic cast
+        // machinery, and the two collection ones run the most of it — a stored number reaching the
+        // number case had to be turned down by `as? [String: Any]` on the way, which measured as the
+        // largest single cost in reading one. A number is also the thing most often asked for.
+        //
+        // Nothing else can answer to a number, so moving this cannot change what any value reads as:
+        // on Darwin the test is a single class check against `NSNumber`, and on
+        // swift-corelibs-foundation it is three existential ones that a string or a collection fails
+        // as surely here as it did below.
+        if let value = PropertyListValue(number: value) {
+            self = value
+            return
+        }
+
         switch value {
         case let value as String:
             self = .string(value)
@@ -44,9 +58,7 @@ extension PropertyListValue {
 
             self = .dictionary(dictionary)
         default:
-            guard let value = PropertyListValue(number: value) else { return nil }
-
-            self = value
+            return nil
         }
     }
 

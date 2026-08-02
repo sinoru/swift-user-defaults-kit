@@ -5,6 +5,7 @@
 
 import Foundation
 import Testing
+import UserDefaultsKitTestSupport
 
 import UserDefaultsKitPropertyList
 
@@ -12,22 +13,12 @@ import UserDefaultsKitPropertyList
 struct PropertyListValueDecoderTests {
     private let decoder = PropertyListValueDecoder()
 
-    private struct Profile: Codable, Equatable {
-        var name: String
-        var age: Int
-        var tags: [String]
-        var nickname: String?
-    }
-
+    /// The two kinds a property list stores natively, wrapped so they can be reached through a
+    /// keyed container rather than only at the top. Local because no other suite needs it.
     private struct Wrapper: Codable, Equatable {
         var profile: Profile
         var updatedAt: Date
         var avatar: Data
-    }
-
-    private enum Theme: String, Codable {
-        case light
-        case dark
     }
 
     // MARK: - Scalars

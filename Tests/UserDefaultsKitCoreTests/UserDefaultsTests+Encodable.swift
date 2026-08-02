@@ -74,7 +74,36 @@ final class UserDefaultsEncodableTests: UserDefaultsTestCase {
 
         #expect(userDefaults.url(forKey: "url") == url)
     }
+
+    // The exception the subscript's note names, pinned rather than left to be discovered. A
+    // top-level `URL` is handed to `set(_:forKey:)` rather than encoded, and what that stores for a
+    // non-file URL is a keyed archive — the one opaque thing a key written through the subscript can
+    // hold, and the price of `url(forKey:)` and `@AppStorage` being able to read it at all. A file
+    // URL is stored as its path and stays legible.
+    @Test
+    func storesATopLevelNonFileURLAsAnArchive() throws {
+        let web = try #require(URL(string: "https://swift.org/blog"))
+
+        userDefaults["web"] = web
+        userDefaults["file"] = URL(fileURLWithPath: "/tmp/settings.json")
+
+        #expect(try #require(userDefaults.object(forKey: "web")) is Data)
+        #expect(userDefaults.string(forKey: "file") == "/tmp/settings.json")
+    }
     #endif
+
+    // And the other half of the same note: a `URL` inside a value is encoded like anything else, so
+    // it lands as a dictionary on both platforms and keeps the parts `set(_:forKey:)` drops. The two
+    // shapes do not read each other, which is why this is worth stating rather than assuming.
+    @Test
+    func encodesAURLInsideAValueAsADictionary() throws {
+        let web = try #require(URL(string: "https://swift.org/blog"))
+
+        userDefaults["pages"] = [web]
+
+        #expect(!(try #require(userDefaults.object(forKey: "pages")) is Data))
+        #expect(userDefaults["pages", type: [URL].self] == [web])
+    }
 
     @Test
     func removesTheKeyWhenTheValueIsNil() throws {

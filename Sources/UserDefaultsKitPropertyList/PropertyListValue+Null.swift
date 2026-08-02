@@ -20,7 +20,11 @@ extension PropertyListValue {
     static let null = PropertyListValue.string("$null")
 
     /// Whether this stands for a `nil` rather than for itself.
-    var isNull: Bool {
+    ///
+    /// `package` rather than `internal` because the read path asks it of a whole stored value before
+    /// decoding one: a sentinel there means the key holds nothing, which is a question about storage
+    /// rather than about coding.
+    package var isNull: Bool {
         self == .null
     }
 }
