@@ -1,13 +1,13 @@
 {
-  "originHash" : "e3cfce3efa8abadf9585245e23b2e3715fa2b62f3ca4c4ddf5bd3a02c485fb9f",
+  "originHash" : "96fa32fe6be5f65efce0f40725f6abdb3ce1c82931eebcbdbc4424a0fabaaf0b",
   "pins" : [
     {
       "identity" : "swift-synchronization-kit",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/sinoru/swift-synchronization-kit.git",
       "state" : {
-        "revision" : "9aa37d639b8de7271c1b8d631e3f2b411f326e5c",
-        "version" : "0.0.2"
+        "revision" : "edbc49f6ffff044a8d6986df1dae40cdc22038d5",
+        "version" : "0.0.3"
       }
     }
   ],

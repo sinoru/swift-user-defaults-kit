@@ -1,4 +1,4 @@
-# Swift User Defaults Kit
+# UserDefaultsKit
 
 [![GitHub Actions — CI](https://github.com/sinoru/swift-user-defaults-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/sinoru/swift-user-defaults-kit/actions/workflows/ci.yml)
 [![GitHub Actions — Apple Platforms](https://github.com/sinoru/swift-user-defaults-kit/actions/workflows/apple-platforms.yml/badge.svg)](https://github.com/sinoru/swift-user-defaults-kit/actions/workflows/apple-platforms.yml)
@@ -18,7 +18,7 @@ other process sharing the domain as a `String` or an `Int` would.
 * [Reading and Writing](#reading-and-writing)
 * [Observing Changes](#observing-changes)
 * [Platform Support](#platform-support)
-* [Using Swift User Defaults Kit in Your Project](#using-swift-user-defaults-kit-in-your-project)
+* [Using UserDefaultsKit in Your Project](#using-userdefaultskit-in-your-project)
 * [Contributing](#contributing)
 * [License](#license)
 
@@ -198,7 +198,7 @@ separate SDKs that fail independently. The watchOS device row is the only place
 `Int` is 32 bits, which is the width the property-list value model narrows
 against.
 
-## Using Swift User Defaults Kit in Your Project
+## Using UserDefaultsKit in Your Project
 
 To use this package in a SwiftPM project, add the following to your
 `Package.swift`:

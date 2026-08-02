@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.0.1] - 2026-08-03
+
 ### Added
 
 - `UserDefault`, a property wrapper reading and writing any `Codable` value in
@@ -28,17 +30,35 @@ and this project adheres to
   through this package legible to `defaults(1)`, to `@AppStorage`, and to any
   other process sharing the domain. A property left `nil` is left out rather
   than written as a null.
+- Writes that are all-or-nothing. Assigning `nil` to a key removes it rather
+  than storing a null, and a value that fails to encode is ignored — the key
+  keeps what it held rather than being left half-written. A property-wrapper
+  setter cannot throw, so that failure is silent; in debug it trips an
+  assertion carrying the `codingPath` that says which property refused.
 - Reading rules that follow the defaults system's storage model rather than
   Swift's type identity, and that hold at every depth rather than only at the
-  top. The numeric types read one another, since a property list keeps no
-  `Float`/`Double`/`Int` distinction to enforce; a fractional value read as an
-  integer truncates toward zero, and one too large to represent reads as `nil`
-  rather than trapping. `Bool` reads `true`/`false` or a number that is exactly
-  `0` or `1`, and not the reverse — a stored `<true/>` asked for as a number
-  reads as `nil`, because a property list does tell those apart. A value of an
-  unrelated kind reads as `nil` and the caller's default takes over, which is
-  deliberately stricter than `integer(forKey:)` and its siblings flattening a
-  mismatch into `0`.
+  top, but for the one pair Foundation owns. The numeric types read one another,
+  since a property list keeps no `Float`/`Double`/`Int` distinction to enforce;
+  a fractional value read as an integer truncates toward zero, and one too large
+  to represent reads as `nil` rather than trapping. `Bool` reads `true`/`false`
+  or a number that is exactly `0` or `1`, and not the reverse — a stored
+  `<true/>` asked for as a number reads as `nil`, because a property list does
+  tell those apart. A value of an unrelated kind reads as `nil` and the caller's
+  default takes over, which is deliberately stricter than `integer(forKey:)` and
+  its siblings flattening a mismatch into `0`. The pair that does not reach past
+  the top is `String` and `URL`, which inherit the coercions of
+  `string(forKey:)` and `url(forKey:)` — Foundation's accessors rather than this
+  package's, with no accessor to inherit from inside a collection. A stored
+  `123` read as a `String` yields `"123"`, while a stored `[123]` read as
+  `[String]` yields `nil`.
+- A top-level `URL` handed to Foundation as it is rather than encoded, so that
+  `url(forKey:)` and `@AppStorage` can still read it. On Darwin that means a
+  non-file URL is stored as a keyed archive — the one opaque thing a key written
+  through this package can hold — and on swift-corelibs-foundation it means only
+  a file URL survives the round trip at all, since `set(_:forKey:)` there keeps
+  `url.path` and drops the scheme and host before anything here can see them. A
+  `URL` *inside* a value takes the ordinary path and loses nothing on either
+  platform.
 - A property-list encoder and decoder that work on a value tree directly rather
   than on `Data`. Foundation exposes no coder that takes a property list
   object — the one it has internally is compiled into the Darwin framework
@@ -46,6 +66,9 @@ and this project adheres to
   first, and writing meant the reverse. Neither hop remains, and with them go
   `PropertyListEncoder`'s refusal of a top-level fragment, which a
   `String`-backed enum is, and its numeric coercions applying only at the top.
+  Neither coder is part of the public surface: the target is left out of
+  `products` and everything in it is `package` rather than `public`. What it
+  supports is the subscripts above.
 - Change observation on Apple platforms, in three shapes over one backend:
   `publisher` (Combine), `values` (`AsyncStream`), and `UserDefaultStorage`, a
   SwiftUI `DynamicProperty` whose projected value is a `Binding` and whose view
@@ -75,4 +98,5 @@ and this project adheres to
   swift-corelibs-foundation has no KVO and posts `didChangeNotification` only
   for whole-domain changes. Building the package requires Swift 6.3 or later.
 
-[unreleased]: https://github.com/sinoru/swift-user-defaults-kit/commits/main
+[unreleased]: https://github.com/sinoru/swift-user-defaults-kit/compare/v0.0.1...HEAD
+[0.0.1]: https://github.com/sinoru/swift-user-defaults-kit/releases/tag/v0.0.1
