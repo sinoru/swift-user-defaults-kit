@@ -139,7 +139,7 @@ To use this package in a SwiftPM project, add the following to your `Package.swi
 dependencies: [
     .package(
         url: "https://github.com/sinoru/swift-user-defaults-kit.git",
-        "0.0.1"..<"0.1.0"
+        "0.0.2"..<"0.1.0"
     ),
 ]
 ```
@@ -160,7 +160,7 @@ The Combine and SwiftUI surfaces each live behind a [package trait](https://gith
 ```swift
 .package(
     url: "https://github.com/sinoru/swift-user-defaults-kit.git",
-    "0.0.1"..<"0.1.0",
+    "0.0.2"..<"0.1.0",
     traits: ["Combine"]
 ),
 ```

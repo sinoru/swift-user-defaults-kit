@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-08-16
+
 ### Changed
 
 - The property-list value tree and the coder pair that reads and writes one now come from [swift-property-list](https://github.com/sinoru/swift-property-list) rather than from a target inside this package. Nothing in them was ever about `UserDefaults`: what they model is the format, which a stored value happens to be in — so they moved to where something other than this package can use them. Behaviour is unchanged, and so is the public surface, since the dependency is an `internal import` and no signature here mentions it. What a consumer sees is one more package resolving alongside `swift-synchronization-kit`.
@@ -26,5 +28,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Package traits `Combine` and `SwiftUI`, both enabled by default, so a client can leave out the surfaces it does not use. `SwiftUI` enables `Combine` with it, since the view's refresh is driven by the publisher. Both targets are Apple-only regardless of the trait set; turning both off leaves the wrapper, the subscripts, and `values`, which is everything the package offers elsewhere.
 - Support for macOS 12, Mac Catalyst 15, iOS 15, tvOS 15, watchOS 8, and visionOS 1 or later, and for every other platform Foundation builds for. Reading and writing works wherever Foundation does; observing is Darwin-only and absent elsewhere rather than present and silent, since swift-corelibs-foundation has no KVO and posts `didChangeNotification` only for whole-domain changes. Building the package requires Swift 6.3 or later.
 
-[unreleased]: https://github.com/sinoru/swift-user-defaults-kit/compare/v0.0.1...HEAD
+[unreleased]: https://github.com/sinoru/swift-user-defaults-kit/compare/v0.0.2...HEAD
+[0.0.2]: https://github.com/sinoru/swift-user-defaults-kit/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/sinoru/swift-user-defaults-kit/releases/tag/v0.0.1
