@@ -24,15 +24,24 @@ let traits: Set<PackageDescription.Trait> = [
     .default(enabledTraits: ["Combine", "SwiftUI"]),
 ]
 
-// The floor is 0.0.2 rather than 0.0.1 because a consumer resolves this range for itself and never
-// sees this package's `Package.resolved`. 0.0.2 is where `RWLock` stopped drawing ThreadSanitizer
-// reports on the Mach semaphore backend — which is every deployment target this package supports
-// below macOS 14.4 and iOS 17.4 — and where `_MutexHandle`/`_RWLockHandle`, public in 0.0.1 by
-// oversight, went back to being plumbing.
 let dependencies: [PackageDescription.Package.Dependency] = [
+    // The floor is 0.0.2 rather than 0.0.1 because a consumer resolves this range for itself and
+    // never sees this package's `Package.resolved`. 0.0.2 is where `RWLock` stopped drawing
+    // ThreadSanitizer reports on the Mach semaphore backend — which is every deployment target this
+    // package supports below macOS 14.4 and iOS 17.4 — and where `_MutexHandle`/`_RWLockHandle`,
+    // public in 0.0.1 by oversight, went back to being plumbing.
     .package(
         url: "https://github.com/sinoru/swift-synchronization-kit.git",
         "0.0.2"..<"0.1.0"
+    ),
+    // The value tree a stored `UserDefaults` object is, and the coder pair that reads and writes one
+    // without serializing it. Both started here and moved out, because neither is about
+    // `UserDefaults`: what they model is the format, which every one of its values happens to be in.
+    // The platform floor over there is this package's, set so that this one can depend on it
+    // everywhere it runs.
+    .package(
+        url: "https://github.com/sinoru/swift-property-list.git",
+        "0.0.1"..<"0.1.0"
     ),
 ]
 
@@ -58,18 +67,11 @@ let targets: [PackageDescription.Target] = [
         ],
         swiftSettings: commonSwiftSettings,
     ),
-    // Deliberately not a product, and everything it offers is `package` rather than `public`. Being
-    // left out of `products` keeps it from being advertised; the access level is what keeps it from
-    // being used, since a target built as a dependency still lands on a consumer's search path.
-    .target(
-        name: "UserDefaultsKitPropertyList",
-        swiftSettings: commonSwiftSettings,
-    ),
     .target(
         name: "UserDefaultsKitCore",
         dependencies: [
             .product(name: "SynchronizationKit", package: "swift-synchronization-kit"),
-            "UserDefaultsKitPropertyList",
+            .product(name: "PropertyList", package: "swift-property-list"),
         ],
         swiftSettings: commonSwiftSettings,
     ),
@@ -88,11 +90,6 @@ let targets: [PackageDescription.Target] = [
     ),
     .target(
         name: "UserDefaultsKitTestSupport",
-        swiftSettings: commonSwiftSettings,
-    ),
-    .testTarget(
-        name: "UserDefaultsKitPropertyListTests",
-        dependencies: ["UserDefaultsKitTestSupport", "UserDefaultsKitPropertyList"],
         swiftSettings: commonSwiftSettings,
     ),
     .testTarget(

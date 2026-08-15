@@ -7,11 +7,11 @@
 
 import Foundation
 
-// `internal` rather than `package`, which is as far as the module's own access level would allow.
-// Nothing here puts a `PropertyListValue` in a signature — the subscript is generic over `Codable`
-// and the tree only exists inside these bodies — so the tighter spelling is the accurate one, and it
-// keeps the module from reaching a consumer through this one.
-internal import UserDefaultsKitPropertyList
+// `internal` rather than `public`. Nothing here puts a `PropertyListValue` in a signature — the
+// subscript is generic over `Codable` and the tree only exists inside these bodies — so the tighter
+// spelling is the accurate one, and it keeps a consumer of this package from reaching PropertyList
+// through it.
+internal import PropertyList
 
 extension UserDefaults {
     /// Accesses the `Codable` value stored under a key.

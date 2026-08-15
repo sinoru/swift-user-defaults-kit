@@ -7,10 +7,11 @@
 # it into a fact — including the two targets that exist only on Apple platforms, `UserDefaultsKit`'s
 # Combine and SwiftUI halves, whose availability rules are not the same on every one.
 #
-# The watchOS *device* row is the only place `Int` is 32 bits, which is the width
-# `PropertyListValue.propertyList` narrows against. Nothing can be run there — no runner has a watch
-# attached — so this compiles that configuration and stops, which is still more than nothing was
-# doing before.
+# The watchOS *device* row is the only place `Int` is 32 bits. Nothing here narrows against that
+# width any more — the code that did left with the property-list value — but a device SDK is a
+# different target triple from its simulator either way, and this package claims both. Nothing can be
+# run there — no runner has a watch attached — so this compiles that configuration and stops, which
+# is still more than nothing was doing before.
 #
 # What this deliberately does not do is pin old OS runtimes the way the sibling package does. That
 # one branches on OS version at run time and back-deploys metadata, so supporting a release is a
@@ -145,11 +146,11 @@ jobs:
             echo "TEST_DESTINATION=${{ matrix.platform.test_destination }}" >> "$GITHUB_ENV"
           fi
 
-      # The measurement suites are skipped for the reason ci.yml skips them: a release row would
+      # The measurement suite is skipped for the reason ci.yml skips it: a release row would
       # otherwise execute `measure` blocks that no baseline can fail and nobody reads, on a
       # simulator, where `XCTCPUMetric` wants hardware performance counters it may not have. Stated
-      # unconditionally rather than only on the release rows — in debug they already skip
-      # themselves, so naming them twice would be the same instruction written in two places.
+      # unconditionally rather than only on the release rows — in debug it already skips itself, so
+      # naming it twice would be the same instruction written in two places.
       - name: xcodebuild test-without-building
         if: env.TEST_DESTINATION
         run: |
@@ -158,5 +159,4 @@ jobs:
             -destination "$TEST_DESTINATION" \
             -configuration ${{ matrix.configuration }} \
             -skip-testing:UserDefaultsKitCoreTests/UserDefaultsPerformanceTests \
-            -skip-testing:UserDefaultsKitPropertyListTests/PropertyListCoderPerformanceTests \
             -derivedDataPath "$RUNNER_TEMP/DerivedData"

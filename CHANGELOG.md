@@ -8,6 +8,17 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- The property-list value tree and the coder pair that reads and writes one now
+  come from [swift-property-list](https://github.com/sinoru/swift-property-list)
+  rather than from a target inside this package. Nothing in them was ever about
+  `UserDefaults`: what they model is the format, which a stored value happens to
+  be in — so they moved to where something other than this package can use them.
+  Behaviour is unchanged, and so is the public surface, since the dependency is
+  an `internal import` and no signature here mentions it. What a consumer sees is
+  one more package resolving alongside `swift-synchronization-kit`.
+
 ## [0.0.1] - 2026-08-03
 
 ### Added

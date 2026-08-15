@@ -46,7 +46,7 @@ jobs:
       # which was measured rather than assumed, so the encode failure the setter reports is
       # reachable in that row alone. `precondition` survives both, which is why the exit tests do.
       #
-      # Debug is also the only row that compiles the `#if DEBUG` half of the measurement suites.
+      # Debug is also the only row that compiles the `#if DEBUG` half of the measurement suite.
       matrix:
         include:
           - name: "macOS"
@@ -70,10 +70,10 @@ jobs:
       # `@testable import` needs `-enable-testing`, which publishes internal symbols and so costs
       # the optimizer some of what it may assume.
       #
-      # The measurement suites are skipped rather than run. They skip themselves in debug, but a
-      # release row would otherwise execute seven `measure` blocks that no baseline can fail and
-      # nobody reads — and `XCTCPUMetric` wants hardware performance counters that a virtualized
-      # runner may not have. Compiling them is the part worth keeping.
+      # The measurement suite is skipped rather than run. It skips itself in debug, but a release
+      # row would otherwise execute three `measure` blocks that no baseline can fail and nobody
+      # reads — and `XCTCPUMetric` wants hardware performance counters that a virtualized runner may
+      # not have. Compiling them is the part worth keeping.
       - name: Build
         run: swift build -c ${{ matrix.configuration }} ${RUNNER_DEBUG:+-v} ${SANITIZE:+--sanitize "$SANITIZE"}
       - name: Test

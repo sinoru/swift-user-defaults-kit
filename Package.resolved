@@ -1,6 +1,15 @@
 {
-  "originHash" : "96fa32fe6be5f65efce0f40725f6abdb3ce1c82931eebcbdbc4424a0fabaaf0b",
+  "originHash" : "1a27280f967a7239d654f917ec116f0d9d46b3e084d45f0d6f5ee4fa8bb07025",
   "pins" : [
+    {
+      "identity" : "swift-property-list",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/sinoru/swift-property-list.git",
+      "state" : {
+        "revision" : "332bf0076cb35054bdf9e468aa765400d3e5ef2f",
+        "version" : "0.0.1"
+      }
+    },
     {
       "identity" : "swift-synchronization-kit",
       "kind" : "remoteSourceControl",
