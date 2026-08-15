@@ -121,7 +121,7 @@ Building the package requires Swift 6.3 or later.
 
 `swift test` needs no arguments and takes no environment variables.
 
-The one thing a plain run leaves out is the measurements, which a debug build skips because an unoptimized one says nothing, and which skip themselves when ThreadSanitizer is attached. They compare this package's property-list coder against the `Data` round trip it replaced, and the subscript against `object(forKey:)` and `integer(forKey:)`. Read the numbers; nothing there fails on a regression, because a number means something next to the number beside it rather than next to one from another machine.
+The one thing a plain run leaves out is the measurements, which a debug build skips because an unoptimized one says nothing, and which skip themselves when ThreadSanitizer is attached. They read a scalar three ways: through the subscript, through the `object(forKey:)` cast ladder the decoder took over from, and through `integer(forKey:)`, which is Foundation's own accessor for the same key and stands as a floor. Read the numbers; nothing there fails on a regression, because a number means something next to the number beside it rather than next to one from another machine.
 
 ```sh
 swift test -c release -Xswiftc -enable-testing --filter PerformanceTests
@@ -129,7 +129,7 @@ swift test -c release -Xswiftc -enable-testing --filter PerformanceTests
 
 CI builds and tests in both configurations on macOS and Linux, and under ThreadSanitizer on both. Release is what ships and the only configuration Swift's default cross-module optimization applies to — every read and write here crosses a module boundary. Debug is where `assertionFailure` still exists: it is compiled out under `-O`, which was measured rather than assumed, so the encode failure the setter reports is reachable in that configuration alone. `precondition` survives both, which is why the exit tests do.
 
-`swift build` compiles for the host and nothing else, so a separate workflow drives the same manifest through the Xcode build system for every Apple platform the manifest claims — device and simulator each, since those are separate SDKs that fail independently. The watchOS device row is the only place `Int` is 32 bits, which is the width the property-list value model narrows against.
+`swift build` compiles for the host and nothing else, so a separate workflow drives the same manifest through the Xcode build system for every Apple platform the manifest claims — device and simulator each, since those are separate SDKs and separate target triples that fail independently.
 
 ## Using UserDefaultsKit in Your Project
 
