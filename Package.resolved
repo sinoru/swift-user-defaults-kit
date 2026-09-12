@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/sinoru/swift-synchronization-kit.git",
       "state" : {
-        "revision" : "0fbbfaeae4fdbe274a3ace2ee69571438d513163",
-        "version" : "1.0.0"
+        "revision" : "73bb4a5a78e8eeecd765fd32a7acdc1f0e7b47fb",
+        "version" : "1.0.1"
       }
     }
   ],
