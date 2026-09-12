@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.0.3] - 2026-09-12
+
 ### Changed
 
 - The package now requires [swift-synchronization-kit](https://github.com/sinoru/swift-synchronization-kit) 1.0.0 or later, up from 0.0.2, and enables only the `Mutex` and `RWLock` traits it uses rather than the default set. 1.0.0 is that package's first stable release, and the one where `RWLock`'s uncontended take and release inline into their caller, so the lock guarding each observation's handlers is compiled for a consumer's deployment target rather than the dependency's minimum. Narrowing the traits leaves the asynchronous primitives and their wait queue out of a consumer's build; nothing here is public through either type, so the public surface is unchanged.
@@ -32,6 +34,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Package traits `Combine` and `SwiftUI`, both enabled by default, so a client can leave out the surfaces it does not use. `SwiftUI` enables `Combine` with it, since the view's refresh is driven by the publisher. Both targets are Apple-only regardless of the trait set; turning both off leaves the wrapper, the subscripts, and `values`, which is everything the package offers elsewhere.
 - Support for macOS 12, Mac Catalyst 15, iOS 15, tvOS 15, watchOS 8, and visionOS 1 or later, and for every other platform Foundation builds for. Reading and writing works wherever Foundation does; observing is Darwin-only and absent elsewhere rather than present and silent, since swift-corelibs-foundation has no KVO and posts `didChangeNotification` only for whole-domain changes. Building the package requires Swift 6.3 or later.
 
-[unreleased]: https://github.com/sinoru/swift-user-defaults-kit/compare/v0.0.2...HEAD
+[unreleased]: https://github.com/sinoru/swift-user-defaults-kit/compare/v0.0.3...HEAD
+[0.0.3]: https://github.com/sinoru/swift-user-defaults-kit/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/sinoru/swift-user-defaults-kit/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/sinoru/swift-user-defaults-kit/releases/tag/v0.0.1
