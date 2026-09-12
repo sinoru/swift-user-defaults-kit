@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- The package now requires [swift-synchronization-kit](https://github.com/sinoru/swift-synchronization-kit) 1.0.0 or later, up from 0.0.2, and enables only the `Mutex` and `RWLock` traits it uses rather than the default set. 1.0.0 is that package's first stable release, and the one where `RWLock`'s uncontended take and release inline into their caller, so the lock guarding each observation's handlers is compiled for a consumer's deployment target rather than the dependency's minimum. Narrowing the traits leaves the asynchronous primitives and their wait queue out of a consumer's build; nothing here is public through either type, so the public surface is unchanged.
+
 ## [0.0.2] - 2026-08-16
 
 ### Changed

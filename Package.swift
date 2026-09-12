@@ -41,14 +41,15 @@ let package = Package(
         .default(enabledTraits: ["Combine", "SwiftUI"]),
     ],
     dependencies: [
-        // The floor is 0.0.2 rather than 0.0.1 because a consumer resolves this range for itself and
-        // never sees this package's `Package.resolved`. 0.0.2 is where `RWLock` stopped drawing
-        // ThreadSanitizer reports on the Mach semaphore backend — which is every deployment target this
-        // package supports below macOS 14.4 and iOS 17.4 — and where `_MutexHandle`/`_RWLockHandle`,
-        // public in 0.0.1 by oversight, went back to being plumbing.
+        // 1.0.0 is the first release whose API is stable, and the first where `RWLock`'s
+        // uncontended paths inline into this package rather than being compiled for the
+        // dependency's own iOS 15 minimum. Only the two primitives this package uses are enabled:
+        // a trait decides what the umbrella re-exports, and leaving the asynchronous family off
+        // keeps its wait queue out of every consumer's build graph.
         .package(
             url: "https://github.com/sinoru/swift-synchronization-kit.git",
-            "0.0.2"..<"0.1.0"
+            from: "1.0.0",
+            traits: ["Mutex", "RWLock"]
         ),
         // The value tree a stored `UserDefaults` object is, and the coder pair that reads and writes one
         // without serializing it. Both started here and moved out, because neither is about
