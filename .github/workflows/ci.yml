@@ -41,10 +41,12 @@ jobs:
       # backend is not the same on both — KVO here, whole-domain notifications there.
       # Both configurations, because they are not the same program. Release is what ships and the
       # only one Swift's default cross-module optimization applies to — this package now has a
-      # module boundary that every read and write crosses, and only there is the code specialized
-      # across it. Debug is where `assertionFailure` still exists: it is compiled out under `-O`,
-      # which was measured rather than assumed, so the encode failure the setter reports is
-      # reachable in that row alone. `precondition` survives both, which is why the exit tests do.
+      # module boundary that every read and write crosses. That optimization inlines the thin
+      # wrappers across it, not the generic code behind them: the subscript here, and `decode` and
+      # `encode` in PropertyList, are still called unspecialized in release, as the emitted symbols
+      # show. Debug is where `assertionFailure` still exists: it is compiled out under `-O`, which
+      # was measured rather than assumed, so the encode failure the setter reports is reachable in
+      # that row alone. `precondition` survives both, which is why the exit tests do.
       #
       # Debug is also the only row that compiles the `#if DEBUG` half of the measurement suite.
       matrix:
