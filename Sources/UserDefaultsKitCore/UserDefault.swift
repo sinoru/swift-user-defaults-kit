@@ -5,7 +5,7 @@
 //  Created by Kang Jaehong on 7/12/26.
 //
 
-import Foundation
+public import Foundation
 
 /// Reads and writes a `Codable` value in `UserDefaults`.
 ///

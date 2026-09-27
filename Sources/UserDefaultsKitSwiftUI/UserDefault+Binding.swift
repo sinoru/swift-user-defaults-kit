@@ -4,8 +4,8 @@
 //
 
 #if canImport(SwiftUI)
-import SwiftUI
-import UserDefaultsKitCore
+public import SwiftUI
+public import UserDefaultsKitCore
 
 extension UserDefault {
     /// A binding to the stored value, for the SwiftUI controls that take one.

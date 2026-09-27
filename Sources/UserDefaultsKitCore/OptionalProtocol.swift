@@ -14,7 +14,7 @@ extension Optional: OptionalProtocol {
         switch self {
         case .none:
             return true
-        case .some(let wrapped as OptionalProtocol):
+        case .some(let wrapped as any OptionalProtocol):
             return wrapped.isNil
         case .some(_):
             return false

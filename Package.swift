@@ -5,6 +5,10 @@ import PackageDescription
 
 let commonSwiftSettings: [PackageDescription.SwiftSetting] = [
     .enableUpcomingFeature("ApproachableConcurrency"),
+    .enableUpcomingFeature("ExistentialAny"),
+    .enableUpcomingFeature("InternalImportsByDefault"),
+    .enableUpcomingFeature("MemberImportVisibility"),
+    .enableUpcomingFeature("ImmutableWeakCaptures"),
     .strictMemorySafety()
 ]
 

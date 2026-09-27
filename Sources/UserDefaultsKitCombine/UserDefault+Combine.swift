@@ -6,9 +6,9 @@
 //
 
 #if canImport(Combine)
-import Combine
+public import Combine
 import Foundation
-import UserDefaultsKitCore
+public import UserDefaultsKitCore
 
 extension UserDefault {
     /// The current value, followed by the value after every change to `key`.

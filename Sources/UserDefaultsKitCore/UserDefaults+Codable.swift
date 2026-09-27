@@ -5,7 +5,7 @@
 //  Created by Kang Jaehong on 7/12/26.
 //
 
-import Foundation
+public import Foundation
 
 // `internal` rather than `public`. Nothing here puts a `PropertyListValue` in a signature — the
 // subscript is generic over `Codable` and the tree only exists inside these bodies — so the tighter

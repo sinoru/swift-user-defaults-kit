@@ -3,7 +3,7 @@
 //  UserDefaultsKit
 //
 
-import Foundation
+public import Foundation
 import Testing
 
 /// Gives each test its own `UserDefaults` suite, removed once the test finishes.

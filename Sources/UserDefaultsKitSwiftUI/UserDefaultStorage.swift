@@ -4,10 +4,10 @@
 //
 
 #if canImport(SwiftUI)
-import Combine
-import Foundation
-import SwiftUI
-import UserDefaultsKitCore
+public import Combine
+public import Foundation
+public import SwiftUI
+public import UserDefaultsKitCore
 import UserDefaultsKitCombine
 
 /// Reads and writes a `Codable` value in `UserDefaults` and refreshes the view when it changes —
