@@ -119,7 +119,7 @@ extension UserDefaults {
         ///
         /// The handler runs on whichever thread performed the write, so a Combine or async consumer is
         /// never forced onto the main actor.
-        package func addHandler(_ handler: @escaping @Sendable () -> Void) -> UUID {
+        package func addHandler(_ handler: consuming @escaping @Sendable () -> Void) -> UUID {
             let token = UUID()
             handlers.withWriteLock { $0[token] = handler }
             return token
