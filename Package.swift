@@ -45,14 +45,15 @@ let package = Package(
         .default(enabledTraits: ["Combine", "SwiftUI"]),
     ],
     dependencies: [
-        // 1.0.0 is the first release whose API is stable, and the first where `RWLock`'s
-        // uncontended paths inline into this package rather than being compiled for the
-        // dependency's own iOS 15 minimum. Only the two primitives this package uses are enabled:
-        // a trait decides what the umbrella re-exports, and leaving the asynchronous family off
-        // keeps its wait queue out of every consumer's build graph.
+        // 1.1.2 is the first release where a value copied out of an `RWLock` read is retained
+        // before the lock is released. From 1.0.1 a writer could free it first, and the handler
+        // snapshot `UserDefaults.Observation` takes before calling out is exactly such a copy.
+        // Only the two primitives this package uses are enabled: a trait decides what the
+        // umbrella re-exports, and leaving the asynchronous family off keeps its wait queue out
+        // of every consumer's build graph.
         .package(
             url: "https://github.com/sinoru/swift-synchronization-kit.git",
-            from: "1.0.0",
+            from: "1.1.2",
             traits: ["Mutex", "RWLock"]
         ),
         // The value tree a stored `UserDefaults` object is, and the coder pair that reads and writes one

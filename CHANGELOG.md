@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- The package now requires [swift-synchronization-kit](https://github.com/sinoru/swift-synchronization-kit) 1.1.2 or later, up from 1.0.0. From 1.0.1 through 1.1.1, a value copied out of an `RWLock` read could be freed by a writer before the reader had retained it, and the handlers an observation calls on each change are read exactly that way — so a subscription, stream, or view attaching or going away while another thread delivered a change could crash the process or leave it holding freed memory. The range also leaves out 1.0.0 and 1.0.1, whose atomics, built by Xcode with Swift 6.3 for an iPhone, trapped on an A9 or A10 device, which the iOS 15 minimum includes. The public surface is unchanged.
+
 ## [0.0.3] - 2026-09-12
 
 ### Changed
