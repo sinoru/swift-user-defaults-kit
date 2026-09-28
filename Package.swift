@@ -61,9 +61,17 @@ let package = Package(
         // `UserDefaults`: what they model is the format, which every one of its values happens to be in.
         // The platform floor over there is this package's, set so that this one can depend on it
         // everywhere it runs.
+        //
+        // `ValueFoundation` is what keeps the bridge to `Any` compiled in away from Apple platforms:
+        // from 0.1.0 the package reads `Data` and `Date` from FoundationEssentials there, and only
+        // that trait brings Foundation itself back. Reading and writing a stored object is that
+        // bridge, and `UserDefaults` lives in Foundation anyway, so enabling it links nothing a
+        // consumer here was not already linking. A dependency's traits cannot be conditioned on the
+        // platform, so it is on everywhere; on Apple platforms it changes nothing.
         .package(
             url: "https://github.com/sinoru/swift-property-list.git",
-            "0.0.1"..<"0.1.0"
+            "0.1.0"..<"0.2.0",
+            traits: [.defaults, "ValueFoundation"]
         ),
     ],
     targets: [

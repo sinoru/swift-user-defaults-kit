@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - The package now requires [swift-synchronization-kit](https://github.com/sinoru/swift-synchronization-kit) 1.1.2 or later, up from 1.0.0. From 1.0.1 through 1.1.1, a value copied out of an `RWLock` read could be freed by a writer before the reader had retained it, and the handlers an observation calls on each change are read exactly that way — so a subscription, stream, or view attaching or going away while another thread delivered a change could crash the process or leave it holding freed memory. The range also leaves out 1.0.0 and 1.0.1, whose atomics, built by Xcode with Swift 6.3 for an iPhone, trapped on an A9 or A10 device, which the iOS 15 minimum includes. The public surface is unchanged.
+- The package now requires [swift-property-list](https://github.com/sinoru/swift-property-list) 0.1.0 or later, below 0.2.0, up from 0.0.1, and enables its `ValueFoundation` trait alongside the defaults. From 0.1.0 that package imports FoundationEssentials rather than Foundation away from Apple platforms, and the bridge between a stored object and its value tree — which every read and write here goes through — needs that trait there. `UserDefaults` is part of Foundation, so a consumer links nothing it did not already link; on Apple platforms the trait changes nothing. The public surface is unchanged.
 
 ## [0.0.3] - 2026-09-12
 
