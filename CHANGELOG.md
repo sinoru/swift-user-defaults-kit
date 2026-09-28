@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.0.4] - 2026-09-28
+
 ### Changed
 
 - The package now requires [swift-synchronization-kit](https://github.com/sinoru/swift-synchronization-kit) 1.1.2 or later, up from 1.0.0. From 1.0.1 through 1.1.1, a value copied out of an `RWLock` read could be freed by a writer before the reader had retained it, and the handlers an observation calls on each change are read exactly that way — so a subscription, stream, or view attaching or going away while another thread delivered a change could crash the process or leave it holding freed memory. The range also leaves out 1.0.0 and 1.0.1, whose atomics, built by Xcode with Swift 6.3 for an iPhone, trapped on an A9 or A10 device, which the iOS 15 minimum includes. The public surface is unchanged.
@@ -39,7 +41,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Package traits `Combine` and `SwiftUI`, both enabled by default, so a client can leave out the surfaces it does not use. `SwiftUI` enables `Combine` with it, since the view's refresh is driven by the publisher. Both targets are Apple-only regardless of the trait set; turning both off leaves the wrapper, the subscripts, and `values`, which is everything the package offers elsewhere.
 - Support for macOS 12, Mac Catalyst 15, iOS 15, tvOS 15, watchOS 8, and visionOS 1 or later, and for every other platform Foundation builds for. Reading and writing works wherever Foundation does; observing is Darwin-only and absent elsewhere rather than present and silent, since swift-corelibs-foundation has no KVO and posts `didChangeNotification` only for whole-domain changes. Building the package requires Swift 6.3 or later.
 
-[unreleased]: https://github.com/sinoru/swift-user-defaults-kit/compare/v0.0.3...HEAD
+[unreleased]: https://github.com/sinoru/swift-user-defaults-kit/compare/v0.0.4...HEAD
+[0.0.4]: https://github.com/sinoru/swift-user-defaults-kit/compare/v0.0.3...v0.0.4
 [0.0.3]: https://github.com/sinoru/swift-user-defaults-kit/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/sinoru/swift-user-defaults-kit/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/sinoru/swift-user-defaults-kit/releases/tag/v0.0.1
