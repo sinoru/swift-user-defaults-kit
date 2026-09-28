@@ -121,7 +121,7 @@ Building the package requires Swift 6.3 or later.
 
 `swift test` needs no arguments and takes no environment variables.
 
-The one thing a plain run leaves out is the measurements, which a debug build skips because an unoptimized one says nothing, and which skip themselves when ThreadSanitizer is attached. They read a scalar three ways: through the subscript, through the `object(forKey:)` cast ladder the decoder took over from, and through `integer(forKey:)`, which is Foundation's own accessor for the same key and stands as a floor. Read the numbers; nothing there fails on a regression, because a number means something next to the number beside it rather than next to one from another machine.
+The one thing a plain run leaves out is the measurements, which a debug build skips because an unoptimized one says nothing, and which skip themselves when ThreadSanitizer is attached. They read a scalar three ways: through the subscript, through the `object(forKey:)` cast ladder the decoder took over from, and through `integer(forKey:)`, which is Foundation's own accessor for the same key and stands as a floor. They also write a scalar, an array and a structure through the subscript, beside `set(_:forKey:)` wherever Foundation has one. Read the numbers; nothing there fails on a regression, because a number means something next to the number beside it rather than next to one from another machine.
 
 ```sh
 swift test -c release -Xswiftc -enable-testing --filter PerformanceTests

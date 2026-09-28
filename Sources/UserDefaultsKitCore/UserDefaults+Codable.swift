@@ -175,9 +175,20 @@ extension UserDefaults {
                 self.set(newValue, forKey: defaultName)
             case let newValue as URL:
                 self.set(newValue, forKey: defaultName)
-            case let newValue where PropertyListSerialization.propertyList(newValue as Any, isValidFor: .binary):
-                self.set(newValue as Any, forKey: defaultName)
             default:
+                // Bridged once, and the object that passed the check is the one stored. Handing
+                // `newValue as Any` to each call bridged it at each, so a collection was built into
+                // an `NSArray` or `NSDictionary` twice — about 8k instructions of a 16-string array
+                // write. swift-corelibs-foundation bridges a collection the same way, and the two
+                // spellings get the same verdict from the check on both platforms, so which values
+                // are stored directly and which are encoded does not move.
+                let object = newValue as AnyObject
+
+                if PropertyListSerialization.propertyList(object, isValidFor: .binary) {
+                    self.set(object, forKey: defaultName)
+                    return
+                }
+
                 do {
                     // Built once, rather than encoded to `Data` and parsed back to get at the
                     // objects inside. It also takes the value as it is: `PropertyListEncoder`

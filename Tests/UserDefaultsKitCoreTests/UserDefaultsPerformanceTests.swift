@@ -12,7 +12,7 @@ import XCTest
 
 import UserDefaultsKitCore
 
-/// What the subscript costs to read a scalar, next to what reading the same key without it costs.
+/// What the subscript costs to read and write a value, next to what the same costs without it.
 ///
 /// The question this exists to answer is one the subscript's own history raises. Reading an `Int`
 /// used to be a ladder of `as?` casts over `object(forKey:)`; it now goes through a decoder, which
@@ -22,6 +22,10 @@ import UserDefaultsKitCore
 ///
 /// `integer(forKey:)` is here as a floor: Foundation's own accessor for the same key, doing the
 /// least any of them can.
+///
+/// Writing is measured the same way, against `set(_:forKey:)` wherever Foundation has one: a
+/// scalar, an array the setter checks is a property list already, and a structure it has to
+/// encode.
 ///
 /// Every case is skipped in a debug build, where an unoptimized measurement says nothing about
 /// anything, so an ordinary `swift test` is untouched. Measure in release:
@@ -104,6 +108,87 @@ final class UserDefaultsPerformanceTests: XCTestCase {
         }
 
         XCTAssertGreaterThan(total, 0)
+    }
+
+    // MARK: - Writing
+
+    /// Two values to alternate between, so that no write in a run stores what the key already
+    /// holds. Long enough that each string needs storage of its own rather than fitting inline.
+    private static let arrays = [
+        (0 ..< 16).map { "the \($0)th element of the first array" },
+        (0 ..< 16).map { "the \($0)th element of the second array" },
+    ]
+
+    private static let profiles = [
+        Profile(name: "Kim", age: 30, tags: ["swift", "defaults"]),
+        Profile(name: "Lee", age: 31, tags: ["plist"], nickname: "L"),
+    ]
+
+    /// A scalar through the subscript. Before handing it to Foundation, the setter asks whether the
+    /// value is a `nil` at any depth and then casts it against the scalars it stores directly.
+    func testWriteAnIntThroughTheSubscript() {
+        measure(metrics: metrics) {
+            for index in 0 ..< Self.iterations {
+                userDefaults["count"] = index
+            }
+        }
+
+        XCTAssertEqual(userDefaults.integer(forKey: "count"), Self.iterations - 1)
+    }
+
+    /// Foundation's own setter for the same scalar, as a floor.
+    func testWriteAnIntThroughSetForKey() {
+        measure(metrics: metrics) {
+            for index in 0 ..< Self.iterations {
+                userDefaults.set(index, forKey: "count")
+            }
+        }
+
+        XCTAssertEqual(userDefaults.integer(forKey: "count"), Self.iterations - 1)
+    }
+
+    /// An array through the subscript, which asks `PropertyListSerialization` whether the value is
+    /// a property list already before storing it as one.
+    func testWriteAnArrayThroughTheSubscript() {
+        let arrays = Self.arrays
+
+        measure(metrics: metrics) {
+            for index in 0 ..< Self.iterations {
+                userDefaults["tags"] = arrays[index % 2]
+            }
+        }
+
+        XCTAssertEqual(userDefaults.stringArray(forKey: "tags"), arrays[(Self.iterations - 1) % 2])
+    }
+
+    /// Foundation's own setter for the same array, as a floor.
+    func testWriteAnArrayThroughSetForKey() {
+        let arrays = Self.arrays
+
+        measure(metrics: metrics) {
+            for index in 0 ..< Self.iterations {
+                userDefaults.set(arrays[index % 2], forKey: "tags")
+            }
+        }
+
+        XCTAssertEqual(userDefaults.stringArray(forKey: "tags"), arrays[(Self.iterations - 1) % 2])
+    }
+
+    /// A structure, which has no property-list form of its own and so goes through the encoder.
+    /// Foundation has no setter to set beside it.
+    func testWriteAStructureThroughTheSubscript() {
+        let profiles = Self.profiles
+
+        measure(metrics: metrics) {
+            for index in 0 ..< Self.iterations {
+                userDefaults["profile"] = profiles[index % 2]
+            }
+        }
+
+        XCTAssertEqual(
+            userDefaults["profile", type: Profile.self],
+            profiles[(Self.iterations - 1) % 2]
+        )
     }
 }
 #endif
