@@ -9,7 +9,7 @@
 // could use exists away from Darwin. Reading and writing works everywhere; observing does not, and
 // the honest way to say that is to not offer it.
 #if canImport(ObjectiveC)
-public import Foundation
+package import Foundation
 import SynchronizationKit
 
 extension UserDefaults {
