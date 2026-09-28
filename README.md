@@ -119,7 +119,7 @@ Building the package requires Swift 6.3 or later.
 
 ### Running the tests
 
-`swift test` needs no arguments and takes no environment variables.
+`swift test` needs no arguments and takes no environment variables. On Linux, add `--no-parallel`: Foundation there can lose a `UserDefaults` write when two threads use it at once, even on separate suites ([swiftlang/swift-corelibs-foundation#5581](https://github.com/swiftlang/swift-corelibs-foundation/issues/5581)), so tests running in parallel fail now and then for no fault of their own.
 
 The one thing a plain run leaves out is the measurements, which a debug build skips because an unoptimized one says nothing, and which skip themselves when ThreadSanitizer is attached. They read a scalar three ways: through the subscript, through the `object(forKey:)` cast ladder the decoder took over from, and through `integer(forKey:)`, which is Foundation's own accessor for the same key and stands as a floor. They also write a scalar, an array and a structure through the subscript, beside `set(_:forKey:)` wherever Foundation has one. Read the numbers; nothing there fails on a regression, because a number means something next to the number beside it rather than next to one from another machine.
 

@@ -489,9 +489,20 @@ jobs:
       # have. Compiling it is the part worth keeping. Away from Darwin it is not compiled at all,
       # `measure(metrics:)` being Darwin's alone, and the skip matches nothing.
       #
-      # Android has no such hand-off, so its branch does what `swift test --skip-build` would, by
-      # hand: stage the bundle with every shared library it loads — the Swift runtime from the SDK,
-      # libc++ from the NDK — push the lot, and run it over adb, which hands back the exit status.
+      # On a Linux runner — Linux itself, and Android, whose emulator runs there — the tests run one
+      # at a time. swift-corelibs-foundation reads the user name for every preferences lookup with
+      # `getpwuid()`, out of a buffer every thread shares, so two tests using `UserDefaults` at once
+      # can each garble the other's lookup and lose a write now and then
+      # (swiftlang/swift-corelibs-foundation#5581). Each suite already has a domain of its own; this
+      # is not something the tests can arrange around. Windows reads the name another way. Whether
+      # Android's C library shares the buffer is unchecked, but Foundation takes the same path
+      # there and serializing costs little. A plain `swift test` on Linux can still fail the same
+      # way, and the README says so.
+      #
+      # Android has no `swift test` to go through, so its branch does what
+      # `swift test --skip-build` would, by hand: stage the bundle with every shared library it
+      # loads — the Swift runtime from the SDK, libc++ from the NDK — push the lot, and run it over
+      # adb, which hands back the exit status.
       # Swift Testing only, since there is no XCTest case to run there, and once per runner: Swift
       # 6.3 builds a single bundle for the package, where 6.4's build system builds a runner for
       # each test target. Named one at a time: a glob on one line runs the first runner with the
@@ -502,11 +513,14 @@ jobs:
         if: ${{ !matrix.skip_tests }}
         shell: bash
         run: |
+          serial=""
+          if [ "$RUNNER_OS" = Linux ]; then serial="--no-parallel"; fi
+
           run_tests() {
             local configuration="$1" test_flags="$2"
 
             if [ -z "$ANDROID" ]; then
-              swift test --skip-build ${RUNNER_DEBUG:+-v} $test_flags --skip PerformanceTests
+              swift test --skip-build ${RUNNER_DEBUG:+-v} $test_flags $serial --skip PerformanceTests
               return
             fi
 
@@ -524,7 +538,7 @@ jobs:
             if [ ! -e "${runners[0]}" ]; then echo "No test runner was built." >&2; return 1; fi
             for runner in "${runners[@]}"; do
               echo "$(basename "$runner")"
-              adb shell "cd $device && ./$(basename "$runner") --testing-library swift-testing" || status=1
+              adb shell "cd $device && ./$(basename "$runner") --testing-library swift-testing $serial" || status=1
             done
             return $status
           }
