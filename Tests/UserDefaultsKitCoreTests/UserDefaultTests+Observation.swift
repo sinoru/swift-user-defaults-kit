@@ -26,18 +26,30 @@ final class UserDefaultsObservationTests: UserDefaultsTestCase {
     /// would pass for the wrong reason.
     private func withObservation(
         key: String,
-        _ body: (UserDefaults.Observation) throws -> Void
-    ) rethrows {
+        _ body: (UserDefaults.Observation) async throws -> Void
+    ) async rethrows {
         let observation = UserDefaults.Observation(key: key, userDefaults: userDefaults)
 
-        try body(observation)
+        try await body(observation)
 
         withExtendedLifetime(observation) {}
     }
 
+    /// Gives a handler up to a second to catch up with a write made on the fallback.
+    ///
+    /// The notification is posted on the writing thread, but it reaches every observation in the
+    /// process, and so does every other test's. Another thread's post can re-read the key first,
+    /// claim the change, and call the handler just after the write returns — once, but not before
+    /// the expectation that follows it.
+    private func waitForHandlers(until condition: () -> Bool) async {
+        for _ in 0..<1_000 where !condition() {
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+    }
+
     @Test
-    func firesHandlersWhenTheValueChanges() {
-        withObservation(key: "count") { observation in
+    func firesHandlersWhenTheValueChanges() async {
+        await withObservation(key: "count") { observation in
             let fired = Mutex(0)
             _ = observation.addHandler { fired.withLock { $0 += 1 } }
 
@@ -48,8 +60,8 @@ final class UserDefaultsObservationTests: UserDefaultsTestCase {
     }
 
     @Test
-    func ignoresChangesToOtherKeys() {
-        withObservation(key: "count") { observation in
+    func ignoresChangesToOtherKeys() async {
+        await withObservation(key: "count") { observation in
             let fired = Mutex(false)
             _ = observation.addHandler { fired.withLock { $0 = true } }
 
@@ -60,8 +72,8 @@ final class UserDefaultsObservationTests: UserDefaultsTestCase {
     }
 
     @Test
-    func removingAHandlerStopsItFiring() {
-        withObservation(key: "count") { observation in
+    func removingAHandlerStopsItFiring() async {
+        await withObservation(key: "count") { observation in
             let fired = Mutex(0)
             let token = observation.addHandler { fired.withLock { $0 += 1 } }
 
@@ -74,8 +86,8 @@ final class UserDefaultsObservationTests: UserDefaultsTestCase {
     }
 
     @Test
-    func deliversToEveryAttachedHandler() {
-        withObservation(key: "count") { observation in
+    func deliversToEveryAttachedHandler() async {
+        await withObservation(key: "count") { observation in
             let first = Mutex(false)
             let second = Mutex(false)
             _ = observation.addHandler { first.withLock { $0 = true } }
@@ -92,28 +104,31 @@ final class UserDefaultsObservationTests: UserDefaultsTestCase {
     // MARK: - Keys Key-Value Observing cannot take
 
     // KVO reads a key as a key path, so these never reach `observeValue` and fall back to
-    // `UserDefaults.didChangeNotification` — which posts synchronously on the writing thread, the
-    // same contract KVO gives. A handler therefore sees this process's own writes either way; what
-    // it stops seeing is another process's, which no test here can reach.
+    // `UserDefaults.didChangeNotification`. A handler still sees each of this process's own writes
+    // exactly once; what it stops seeing is another process's, which no test here can reach. What
+    // it also loses is KVO's timing — see `waitForHandlers(until:)` — so these wait before they
+    // count.
     @Test
-    func firesHandlersForAKeyContainingADot() {
-        withObservation(key: "com.example.count") { observation in
+    func firesHandlersForAKeyContainingADot() async {
+        await withObservation(key: "com.example.count") { observation in
             let fired = Mutex(0)
             _ = observation.addHandler { fired.withLock { $0 += 1 } }
 
             userDefaults.set(42, forKey: "com.example.count")
+            await waitForHandlers { fired.withLock { $0 } > 0 }
 
             #expect(fired.withLock { $0 } == 1)
         }
     }
 
     @Test
-    func firesHandlersForAKeyContainingACollectionOperator() {
-        withObservation(key: "@count") { observation in
+    func firesHandlersForAKeyContainingACollectionOperator() async {
+        await withObservation(key: "@count") { observation in
             let fired = Mutex(0)
             _ = observation.addHandler { fired.withLock { $0 += 1 } }
 
             userDefaults.set(42, forKey: "@count")
+            await waitForHandlers { fired.withLock { $0 } > 0 }
 
             #expect(fired.withLock { $0 } == 1)
         }
@@ -122,8 +137,8 @@ final class UserDefaultsObservationTests: UserDefaultsTestCase {
     // `addObserver(forKeyPath: "")` raises before there is anything to catch it, so constructing
     // this at all is what is being tested.
     @Test
-    func doesNotRaiseForAnEmptyKey() {
-        withObservation(key: "") { observation in
+    func doesNotRaiseForAnEmptyKey() async {
+        await withObservation(key: "") { observation in
             _ = observation.addHandler {}
 
             #expect(observation.handlerCount == 1)
@@ -134,8 +149,8 @@ final class UserDefaultsObservationTests: UserDefaultsTestCase {
     // path, writing `x` raises inside KVO delivery, where Swift cannot catch it. Reaching the
     // expectation is the assertion.
     @Test
-    func doesNotRaiseWhenTheLeadingSegmentOfADottedKeyIsWritten() {
-        withObservation(key: "x.y") { observation in
+    func doesNotRaiseWhenTheLeadingSegmentOfADottedKeyIsWritten() async {
+        await withObservation(key: "x.y") { observation in
             _ = observation.addHandler {}
 
             userDefaults.set(1, forKey: "x")
@@ -149,10 +164,10 @@ final class UserDefaultsObservationTests: UserDefaultsTestCase {
     // meaning anything by it. KVO reports that write, and the fallback has to agree — which is why
     // it takes every notification instead of filtering by the posting instance.
     @Test
-    func firesForAWriteThroughAnotherInstanceUnderKeyValueObserving() throws {
+    func firesForAWriteThroughAnotherInstanceUnderKeyValueObserving() async throws {
         let other = try #require(UserDefaults(suiteName: suiteName))
 
-        withObservation(key: "count") { observation in
+        await withObservation(key: "count") { observation in
             let fired = Mutex(0)
             _ = observation.addHandler { fired.withLock { $0 += 1 } }
 
@@ -163,14 +178,15 @@ final class UserDefaultsObservationTests: UserDefaultsTestCase {
     }
 
     @Test
-    func firesForAWriteThroughAnotherInstanceOnTheFallback() throws {
+    func firesForAWriteThroughAnotherInstanceOnTheFallback() async throws {
         let other = try #require(UserDefaults(suiteName: suiteName))
 
-        withObservation(key: "com.example.count") { observation in
+        await withObservation(key: "com.example.count") { observation in
             let fired = Mutex(0)
             _ = observation.addHandler { fired.withLock { $0 += 1 } }
 
             other.set(42, forKey: "com.example.count")
+            await waitForHandlers { fired.withLock { $0 } > 0 }
 
             #expect(fired.withLock { $0 } == 1)
         }
@@ -179,8 +195,8 @@ final class UserDefaultsObservationTests: UserDefaultsTestCase {
     // The notification names no key, so without a comparison every write anywhere in the suite
     // would look like a change to this one.
     @Test
-    func ignoresChangesToOtherKeysOnTheFallback() {
-        withObservation(key: "com.example.count") { observation in
+    func ignoresChangesToOtherKeysOnTheFallback() async {
+        await withObservation(key: "com.example.count") { observation in
             let fired = Mutex(false)
             _ = observation.addHandler { fired.withLock { $0 = true } }
 
@@ -193,10 +209,10 @@ final class UserDefaultsObservationTests: UserDefaultsTestCase {
     // `UserDefaults` posts for a write that changed nothing, so the comparison is also what keeps a
     // subscriber from being told about a change that did not happen.
     @Test
-    func ignoresARewriteOfTheSameValueOnTheFallback() {
+    func ignoresARewriteOfTheSameValueOnTheFallback() async {
         userDefaults.set(42, forKey: "com.example.count")
 
-        withObservation(key: "com.example.count") { observation in
+        await withObservation(key: "com.example.count") { observation in
             let fired = Mutex(0)
             _ = observation.addHandler { fired.withLock { $0 += 1 } }
 
@@ -205,6 +221,7 @@ final class UserDefaultsObservationTests: UserDefaultsTestCase {
             #expect(fired.withLock { $0 } == 0)
 
             userDefaults.set(43, forKey: "com.example.count")
+            await waitForHandlers { fired.withLock { $0 } > 0 }
 
             #expect(fired.withLock { $0 } == 1)
         }

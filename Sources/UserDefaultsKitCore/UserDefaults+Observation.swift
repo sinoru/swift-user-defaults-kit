@@ -117,8 +117,11 @@ extension UserDefaults {
 
         /// Calls `handler` on every change until the returned token is passed to ``removeHandler(_:)``.
         ///
-        /// The handler runs on whichever thread performed the write, so a Combine or async consumer is
-        /// never forced onto the main actor.
+        /// The handler runs on whichever thread noticed the change, so a Combine or async consumer is
+        /// never forced onto the main actor. Under KVO that is the thread that performed the write.
+        /// Under the notification fallback it can be another writer's: every post in the process
+        /// re-reads the key, and whichever reaches the comparison first reports the change — once,
+        /// but possibly just after the write that made it has returned.
         package func addHandler(_ handler: consuming @escaping @Sendable () -> Void) -> UUID {
             let token = UUID()
             handlers.withWriteLock { $0[token] = handler }
