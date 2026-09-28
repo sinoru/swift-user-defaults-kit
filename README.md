@@ -1,6 +1,6 @@
 # UserDefaultsKit
 
-[![GitHub Actions — CI](https://github.com/sinoru/swift-user-defaults-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/sinoru/swift-user-defaults-kit/actions/workflows/ci.yml)
+[![GitHub Actions — Swift](https://github.com/sinoru/swift-user-defaults-kit/actions/workflows/swift.yml/badge.svg)](https://github.com/sinoru/swift-user-defaults-kit/actions/workflows/swift.yml)
 [![GitHub Actions — Apple Platforms](https://github.com/sinoru/swift-user-defaults-kit/actions/workflows/apple-platforms.yml/badge.svg)](https://github.com/sinoru/swift-user-defaults-kit/actions/workflows/apple-platforms.yml)
 
 [![Swift Package Index — Swift Versions](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fsinoru%2Fswift-user-defaults-kit%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/sinoru/swift-user-defaults-kit)
@@ -127,7 +127,7 @@ The one thing a plain run leaves out is the measurements, which a debug build sk
 swift test -c release -Xswiftc -enable-testing --filter PerformanceTests
 ```
 
-CI builds and tests in both configurations on macOS and Linux, and under ThreadSanitizer on both. Release is what ships and the only configuration Swift's default cross-module optimization applies to — every read and write here crosses a module boundary. Debug is where `assertionFailure` still exists: it is compiled out under `-O`, which was measured rather than assumed, so the encode failure the setter reports is reachable in that configuration alone. `precondition` survives both, which is why the exit tests do.
+CI builds and tests in both configurations with Swift 6.3 and 6.4, on macOS, on Linux and Windows — each on x86_64 and arm64 — and on Android on an emulator; it builds for musl, for WebAssembly and for Android on arm64 without running anything there. On WebAssembly that is Foundation's doing: its `UserDefaults` traps on writing an array there ([swiftlang/swift-corelibs-foundation#5580](https://github.com/swiftlang/swift-corelibs-foundation/issues/5580)). macOS and Linux also run the tests under ThreadSanitizer and under AddressSanitizer. Release is what ships and the only configuration Swift's default cross-module optimization applies to — every read and write here crosses a module boundary. Debug is where `assertionFailure` still exists: it is compiled out under `-O`, which was measured rather than assumed, so the encode failure the setter reports is reachable in that configuration alone.
 
 `swift build` compiles for the host and nothing else, so a separate workflow drives the same manifest through the Xcode build system for every Apple platform the manifest claims — device and simulator each, since those are separate SDKs and separate target triples that fail independently.
 

@@ -1,0 +1,539 @@
+# Builds and tests the package through SwiftPM across the Swift toolchains and the platforms it
+# claims to support. The Xcode build system takes a different path through the same manifest, so
+# Apple platform coverage lives in apple-platforms.yml instead.
+
+name: Swift
+
+# Pushes only fire on the branches git-flow keeps around: the two long-lived ones plus the
+# release-prep pair. Short-lived feature branches are covered by the pull_request trigger when they
+# open against one of these, so listing them here would only run the same commit twice.
+#
+# And only for a change that can alter what is built here: the sources, the tests, the manifest and
+# what it resolved to, and this file. A commit to the README or the changelog runs nothing. A branch
+# filter and a path filter must both be satisfied.
+on:
+  push:
+    branches: [main, develop, "release/**", "hotfix/**"]
+    paths: &paths
+      - Sources/**
+      - Tests/**
+      - Package.swift
+      - Package.resolved
+      - .github/workflows/swift.yml
+  pull_request:
+    branches: [main, develop, "release/**", "hotfix/**"]
+    paths: *paths
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # Named for what it runs on, then the Swift, then in parentheses whatever qualifies the job, so
+    # that the list sorts a platform's jobs together. `os` is the target's to say, and is the
+    # image's release wherever the image is what is being tested; a macOS target says nothing,
+    # since which macOS it gets follows from which Xcode its minor needs. The qualifiers are the
+    # target's `variant`, then "build only", read off the flag that makes it so: a green job that
+    # ran no tests should not have to be looked up. It brings its own comma when something stands
+    # before it; an expression has no way to join only the parts that are there.
+    name: >-
+      ${{ matrix.os || matrix.macos }} · Swift ${{ matrix.pinned && matrix.patch || matrix.swift }}${{
+      (matrix.variant || matrix.skip_tests) && format(' ({0}{1})',
+      matrix.variant || '',
+      matrix.skip_tests && format('{0}build only', matrix.variant && ', ' || '') || ''
+      ) || '' }}
+    runs-on: ${{ matrix.runner || matrix.macos_runner }}
+    # Nothing here should take minutes, and the alternative backstop is GitHub's 360-minute default.
+    timeout-minutes: 30
+    # All are inert where the matrix leaves them unset. DEVELOPER_DIR selects the toolchain on macOS
+    # by pointing at a pinned Xcode: the runner keeps a minor-level symlink at the current patch
+    # (Xcode_26.6.app -> Xcode_26.6.1.app), so this survives patch churn. Every combination carries
+    # its minor's `developer_dir`, so only a macOS target is handed it: the Windows steps export a
+    # DEVELOPER_DIR of the installer's.
+    # SWIFT_SDK carries a cross-compiling target's SDK into the build steps below; where the SDK is
+    # named after its toolchain, the matrix holds a template and the patch fills it in.
+    # SANITIZE names the sanitizer a row builds everything under. ASAN_OPTIONS turns off the leak
+    # checker that comes with AddressSanitizer on Linux, for the reason given beside the rows.
+    # ANDROID tells the test run to go by way of the emulator.
+    env:
+      DEVELOPER_DIR: ${{ startsWith(matrix.target, 'macOS') && matrix.developer_dir || '' }}
+      SWIFT_SDK: ${{ matrix.swift_sdk && format(matrix.swift_sdk, matrix.patch) || '' }}
+      SANITIZE: ${{ matrix.sanitize }}
+      ASAN_OPTIONS: ${{ matrix.sanitize == 'address' && 'detect_leaks=0' || '' }}
+      ANDROID: ${{ matrix.android }}
+    strategy:
+      fail-fast: false
+      # Two axes, crossed: every target under every Swift minor.
+      #
+      # 6.3 is the floor the manifest declares and 6.4 the newest. Nothing in the sources asks
+      # which one it is compiled by, so the second minor is not there for a branch only it
+      # compiles; it is there so that a toolchain change that breaks the package shows up as a job
+      # turning red rather than as a report from someone who upgraded first.
+      #
+      # The axes hold names and nothing else. What a name stands for is attached by `include`,
+      # which adds its keys to every combination it matches and overwrites no axis value: an entry
+      # naming a minor says where that Swift is found, one naming a target says how the target is
+      # built and tested, and one naming both carries the one thing that follows from neither, a
+      # checksum.
+      matrix:
+        swift: ["6.3", "6.4"]
+        target:
+          - macOS
+          - Linux
+          - Linux arm64
+          - Windows
+          - Windows arm64
+          - Linux musl
+          - WebAssembly wasip1
+          - Android API 28
+          - Android API 28 arm64
+          - macOS TSan
+          - macOS ASan
+          - Linux TSan
+          - Linux ASan
+        include:
+          # A minor, as its newest patch, and where macOS finds it: the Xcode that carries it, the
+          # image that carries that Xcode, and the macOS that image is. Swift 6.3 lives in Xcode
+          # 26.4+ and Swift 6.4 in Xcode 27, which no `macos-26` image has. `xcode-27` is the label
+          # of the image that does, a preview of the macOS 27 one.
+          - swift: "6.3"
+            patch: "6.3.3"
+            macos_runner: macos-26
+            macos: macOS 26
+            developer_dir: /Applications/Xcode_26.6.app/Contents/Developer
+          - swift: "6.4"
+            patch: "6.4.0"
+            macos_runner: xcode-27
+            macos: macOS 27
+            developer_dir: /Applications/Xcode_27.0.app/Contents/Developer
+
+          # macOS has no entry of its own: its runner and its Xcode are its minor's.
+          #
+          # Everywhere below is swift-corelibs-foundation, and reading and writing works there;
+          # observing does not. It has no KVO, and posts `didChangeNotification` only for
+          # whole-domain changes rather than for a `set(_:forKey:)` write, so
+          # `UserDefaults.Observation` and `UserDefault.values` compile out. These targets are what
+          # keep that boundary from drifting, and what would catch the storage half regressing on a
+          # platform nobody develops on.
+          #
+          # Linux installs the bare minor, which resolves to its newest patch. The image is pinned
+          # where the Swift floats, here and on every target below that runs on one: a job is named
+          # for its image, and `ubuntu-latest` will move to a release Swift 6.3 has no toolchain
+          # for. arm64 is here so that the storage half meets both architectures a Linux server
+          # runs on.
+          - target: Linux
+            os: Ubuntu 24.04
+            runner: ubuntu-24.04
+          - target: Linux arm64
+            os: Ubuntu 24.04
+            variant: arm64
+            runner: ubuntu-24.04-arm
+          # Windows is the other Foundation that is not Darwin's, built from the same corelibs
+          # sources over a different C library. Pinned to a patch because an installer is one, and
+          # named by a URL that is a template like the SDKs' below, with the checksums beside
+          # theirs. arm64 is here for the reason it is under Linux.
+          - target: Windows
+            os: Windows Server 2025
+            runner: windows-2025
+            pinned: true
+            installer_url: https://download.swift.org/swift-{0}-release/windows10/swift-{0}-RELEASE/swift-{0}-RELEASE-windows10.exe
+          - target: Windows arm64
+            os: Windows 11
+            variant: arm64
+            runner: windows-11-arm
+            pinned: true
+            installer_url: https://download.swift.org/swift-{0}-release/windows10-arm64/swift-{0}-RELEASE/swift-{0}-RELEASE-windows10-arm64.exe
+          # Cross-compiles against musl through the static Linux SDK, which is the other C library
+          # the package can land on and the one whose Foundation nobody here builds by accident. A
+          # Swift SDK is only compatible with the exact toolchain version that built it, so unlike
+          # the floating targets above the cross-compiling ones pin the toolchain to a patch, and
+          # their URLs are templates that the patch fills in; the checksums, further down, are all
+          # that is bumped by hand. This target builds and does not test: the static SDK ships no
+          # testing library. An opt-out flag rather than an opt-in one because of how a condition
+          # reads an unset matrix field: it is null, which the loose comparison the runner uses
+          # makes equal to `false`, so `tests != false` would be false on every target that says
+          # nothing. Under `!`, null is simply falsy.
+          - target: Linux musl
+            os: Linux
+            variant: musl
+            runner: ubuntu-24.04
+            pinned: true
+            swift_sdk: x86_64-swift-linux-musl
+            sdk_url: https://download.swift.org/swift-{0}-release/static-sdk/swift-{0}-RELEASE/swift-{0}-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz
+            skip_tests: true
+          # Cross-compiles to WebAssembly through the Swift SDK for it, which targets
+          # `wasm32-unknown-wasip1`, the single-threaded flavor. Built only, and not for want of a
+          # runner: `swift test` would hand the bundle to the WasmKit the toolchain ships. What
+          # stops it is Foundation there. Its static archive leaves out `Array`'s bridging
+          # conformance unless something happens to refer to the file it is in, and nothing does,
+          # so `set(_:forKey:)` with a value that is or holds an array traps in
+          # `CFPreferencesSetAppValue`, "unreachable" in `__CFTypeCollectionRetain`, under both
+          # SDKs — a Foundation-only program does it too. Several tests here write one, and a trap
+          # takes the whole test run with it. The day swift-corelibs-foundation#5580 is fixed, this
+          # becomes a target that runs its tests.
+          - target: WebAssembly wasip1
+            os: WebAssembly
+            variant: wasip1
+            runner: ubuntu-24.04
+            pinned: true
+            swift_sdk: swift-{0}-RELEASE_wasm
+            sdk_url: https://download.swift.org/swift-{0}-release/wasm-sdk/swift-{0}-RELEASE/swift-{0}-RELEASE_wasm.artifactbundle.tar.gz
+            skip_tests: true
+          # Cross-compiles to Android through the Swift SDK for it, and runs the tests on an
+          # emulator: the one Foundation here that is built against bionic. API 28 is the lowest
+          # level the 6.3.3 SDK targets, and the 6.4.0 one, which reaches down to 23, is held to it
+          # so that the two minors run the same thing; x86_64 because that is what the runner's KVM
+          # can accelerate.
+          #
+          # `swift test` has no way to reach a device, so the target carries the test bundle over
+          # by hand; the emulator's step and the Android branch of `Run tests` say how.
+          - target: Android API 28
+            os: Android
+            variant: API 28
+            runner: ubuntu-24.04
+            pinned: true
+            swift_sdk: x86_64-unknown-linux-android28
+            sdk_url: &android_sdk_url https://download.swift.org/swift-{0}-release/android-sdk/swift-{0}-RELEASE/swift-{0}-RELEASE_android.artifactbundle.tar.gz
+            android: true
+          # The architecture Android devices actually have, from the same bundle, and built only.
+          # Nothing hosted can run it: the emulator is accelerated for a guest of its host's
+          # architecture, the arm64 runners carry no Android tooling, and the NDK, whose linker
+          # Swift 6.4 runs, is published for x86_64 Linux alone.
+          - target: Android API 28 arm64
+            os: Android
+            variant: API 28, arm64
+            runner: ubuntu-24.04
+            pinned: true
+            swift_sdk: aarch64-unknown-linux-android28
+            sdk_url: *android_sdk_url
+            android: true
+            skip_tests: true
+          # A sanitized build is a different build, not a different way of running one, so these
+          # are targets rather than an extra step on the ones above. One per observation backend:
+          # KVO on macOS, and on Linux the storage half alone, since observing compiles out there.
+          #
+          # ThreadSanitizer watches something that is not hypothetical. The change publisher hands a
+          # `CurrentValueSubject` a `nonisolated(unsafe)` opt-out and says in its own comment that
+          # Combine never documented `send(_:)` as callable from any thread, so that is an
+          # assumption rather than a guarantee. KVO delivers on whichever thread performed the
+          # write, which is what puts two of them there at once.
+          - target: macOS TSan
+            variant: TSan
+            sanitize: thread
+          - target: Linux TSan
+            os: Ubuntu 24.04
+            variant: TSan
+            runner: ubuntu-24.04
+            sanitize: thread
+          # AddressSanitizer takes rows of its own: it instruments the same loads and stores, and
+          # the two cannot share a build, each wanting the whole shadow mapping to itself. What it
+          # is here for is the kind of bug the other cannot see — a reference read after it was
+          # freed — which this package has already met once, in the handler snapshot an
+          # observation takes out of an `RWLock` before calling out.
+          #
+          # The leak checker that comes with it on Linux is turned off, in `ASAN_OPTIONS` above.
+          # What it reports is XCTest's own: the suite run its runner allocates and holds until the
+          # binary exits, even though no XCTest case is compiled there — under 6.3 and not 6.4, in
+          # stacks that differ by toolchain and by architecture, and a suppression wide enough for
+          # them would match the package's allocations too. Apple's platforms do not run the checker
+          # unless asked, so the rows behave alike.
+          - target: macOS ASan
+            variant: ASan
+            sanitize: address
+          - target: Linux ASan
+            os: Ubuntu 24.04
+            variant: ASan
+            runner: ubuntu-24.04
+            sanitize: address
+
+          # What a download hashes to, which is the release's to say: SHA-256, of an SDK's bundle
+          # or of an installer.
+          - { swift: "6.3", target: Windows, installer_checksum: 235626548f249cd516d3d4d90eee980dccad46f3822dac1f8e3119b0fede94b7 }
+          - { swift: "6.4", target: Windows, installer_checksum: 76169a85bcba82854a0cd8f9655ffb74b3758d60c35a245457510095f2823c03 }
+          - { swift: "6.3", target: Windows arm64, installer_checksum: 09e39c60f0b05d00fbe5f55b2d344752ccbc86e64802a2d896c0d55bc51e243d }
+          - { swift: "6.4", target: Windows arm64, installer_checksum: f48e393634995cb589f547e40d64673bc641ca76b099697ba8227a8904be4a49 }
+          - { swift: "6.3", target: Linux musl, sdk_checksum: 87c3eaf908e67c0e13a84367119e12273cec1d2cd3d81f7d74bb36722d6b607b }
+          - { swift: "6.4", target: Linux musl, sdk_checksum: 47d2fd89eebfdf9eb4d536b6710414297f755c17926cdebc4742c08982b40a9e }
+          - { swift: "6.3", target: WebAssembly wasip1, sdk_checksum: cabfa08b73bb8ac783927ecd15fa386e99d0c139c5f232445067bcf58379cae7 }
+          - { swift: "6.4", target: WebAssembly wasip1, sdk_checksum: f07b7be3c586d92d7a07051fc6d303b87ebea67eadc40640ba59d5a8b79aa86d }
+          - { swift: "6.3", target: Android API 28, sdk_checksum: d160cc3206dd1886dae3fef2337af5e25ec034692cd0ec225721c56cc69da7f5 }
+          - { swift: "6.4", target: Android API 28, sdk_checksum: 21fb555122a3d801ad943d48df7ebffdd8824de61c25c180bb792d3edaee0b43 }
+          - { swift: "6.3", target: Android API 28 arm64, sdk_checksum: d160cc3206dd1886dae3fef2337af5e25ec034692cd0ec225721c56cc69da7f5 }
+          - { swift: "6.4", target: Android API 28 arm64, sdk_checksum: 21fb555122a3d801ad943d48df7ebffdd8824de61c25c180bb792d3edaee0b43 }
+    # Verbose output is gated on RUNNER_DEBUG throughout: it is only present when a run has step
+    # debug logging enabled — through the ACTIONS_STEP_DEBUG variable or the re-run checkbox — and
+    # then holds "1". Ordinary runs stay terse; re-running the same commit in debug mode brings the
+    # detail back without editing the workflow. The variable cannot be folded into a job-level env:
+    # the runner context is unavailable there.
+    steps:
+      - uses: actions/checkout@v7
+
+      # macOS ships a full toolchain in Xcode; Linux does not, so it installs one here. swiftly is
+      # swiftlang's own installer, invoked as a CLI rather than a third-party action. A bare Swift
+      # minor ("6.3") resolves to its newest patch, matching how the swift:6.3 container tag
+      # floats.
+      #
+      # Prereqs on the runner image: gnupg and ca-certificates (both present on the Ubuntu images).
+      # --post-install-file captures any toolchain system dependencies so they can be applied with
+      # sudo. The script installs them without refreshing the package index, and the image's index
+      # is the one it was built with, so a version the archive has since replaced is a 404 — which
+      # libcurl4-openssl-dev became once a security update superseded the image's copy, failing
+      # every job on the runner. The index is refreshed here before the script runs.
+      #
+      # Everything lands in swiftly's default location. The shims it puts on PATH resolve the
+      # toolchain through SWIFTLY_HOME_DIR at run time, and that variable does not survive the step
+      # that exported it — so relocating the install would mean re-exporting it through GITHUB_ENV
+      # for every later step. env.sh sets it here for the install itself.
+      - name: Install Swift toolchain
+        if: runner.os == 'Linux'
+        run: |
+          curl -fL "https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz" -o "$RUNNER_TEMP/swiftly.tar.gz"
+          tar -C "$RUNNER_TEMP" -zxf "$RUNNER_TEMP/swiftly.tar.gz"
+          "$RUNNER_TEMP/swiftly" init ${RUNNER_DEBUG:+--verbose} --assume-yes --skip-install
+          . "$HOME/.local/share/swiftly/env.sh"
+          swiftly install --use "${{ matrix.pinned && matrix.patch || matrix.swift }}" --post-install-file "$RUNNER_TEMP/swiftly-post-install.sh"
+          if [ -f "$RUNNER_TEMP/swiftly-post-install.sh" ]; then
+            sudo apt-get update
+            sudo bash "$RUNNER_TEMP/swiftly-post-install.sh"
+          fi
+          echo "$SWIFTLY_BIN_DIR" >> "$GITHUB_PATH"
+
+      # Windows ships no toolchain either, and swiftly does not run there. This runs the installer
+      # swift.org publishes, the one winget's manifest points at, rather than going through winget:
+      # the arm64 image carries no winget and is not going to (actions/runner-images#14083), and one
+      # way in for both architectures is less to keep than two. Fetched, checked against the hash
+      # the manifest gives, and run with the switches winget gives a bundle of this kind. The Visual
+      # Studio components the toolchain needs — the C++ tools and a Windows SDK — are on the image
+      # already.
+      #
+      # The installer registers the toolchain's directories and SDKROOT in the user's environment,
+      # and a job's later steps do not re-read that: they inherit the environment the runner
+      # started with. The step after this copies what the installer wrote — every path entry naming
+      # Swift, and the two variables — into GITHUB_PATH and GITHUB_ENV, checking both scopes because
+      # which one an installer picks depends on how it was run. An installer has been seen to exit
+      # zero and register SDKROOT with no path entry to show for it, once; the log it is asked to
+      # keep is there for the next time, and the export fails under its own name rather than leaving
+      # `swift` to be missed by the step after it.
+      - name: Install Swift toolchain
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = Join-Path $env:RUNNER_TEMP "swift-installer.exe"
+          curl.exe -fL "${{ format(matrix.installer_url, matrix.patch) }}" -o $installer
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $hash = (Get-FileHash -Path $installer -Algorithm SHA256).Hash
+          if ($hash -ne "${{ matrix.installer_checksum }}") {
+            throw "The installer hashes to $hash."
+          }
+          $install = Start-Process -FilePath $installer -Wait -PassThru `
+            -ArgumentList "/quiet", "/norestart", "/log", "$env:RUNNER_TEMP\swift-installer.log"
+          exit $install.ExitCode
+
+      - name: Export the toolchain's environment
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $found = $false
+          foreach ($scope in "User", "Machine") {
+            foreach ($entry in [Environment]::GetEnvironmentVariable("Path", $scope) -split ";") {
+              if ($entry -like "*Swift*") {
+                Add-Content -Path $env:GITHUB_PATH -Value $entry
+                $found = $true
+              }
+            }
+            foreach ($name in "SDKROOT", "DEVELOPER_DIR") {
+              $value = [Environment]::GetEnvironmentVariable($name, $scope)
+              if ($value) {
+                Add-Content -Path $env:GITHUB_ENV -Value "$name=$value"
+              }
+            }
+          }
+          if (-not $found) {
+            Get-Content "$env:RUNNER_TEMP\swift-installer.log" -Tail 60 -ErrorAction SilentlyContinue
+            throw "The installer finished without putting the toolchain on the path."
+          }
+
+      - name: Install the Swift SDK
+        if: matrix.swift_sdk
+        run: swift sdk install "${{ format(matrix.sdk_url, matrix.patch) }}" --checksum "${{ matrix.sdk_checksum }}"
+
+      # The Android SDK ships Swift's half of the sysroot and expects the NDK to supply the rest;
+      # its setup script links the two. The runner image carries an NDK and exports
+      # ANDROID_NDK_HOME at it — 27, the minimum the script accepts — so nothing is downloaded. The
+      # bundle's location is kept for the test step, which needs the runtime libraries out of it.
+      - name: Link the Android NDK into the Swift SDK
+        if: matrix.android
+        run: |
+          setup="$(find -L "$HOME/.swiftpm" "$HOME/.config/swiftpm" -name setup-android-sdk.sh -print -quit 2>/dev/null || true)"
+          "$setup"
+          echo "ANDROID_SWIFT_SDK=$(dirname "$(dirname "$setup")")" >> "$GITHUB_ENV"
+
+      - run: swift --version
+
+      # The library exactly as a consumer gets it: release, default traits. Release is what ships
+      # and the only configuration Swift's default cross-module optimization applies to — every
+      # read and write here crosses a module boundary, into swift-property-list's coder. This step
+      # is that build on its own, so that a library that does not compile for a platform fails
+      # under this name and not under a test build's.
+      #
+      # It names the umbrella, which builds it and exactly what it pulls in: what a consumer's
+      # `import UserDefaultsKit` reaches. A bare `swift build` would also reach
+      # `UserDefaultsKitTestSupport`, an ordinary target rather than a test one since several test
+      # targets share it, and stop on its `import Testing` wherever there is no testing library —
+      # the musl row. `--target` rather than `--product`: the library is declared without a link
+      # type, which makes it an automatic product, and `--product` refuses those with a warning and
+      # builds everything anyway.
+      #
+      # `shell: bash` on this step and the ones after it, for the parameter expansions: a Windows
+      # runner defaults to PowerShell, and its Git Bash is what runs these there. On the other
+      # runners it is the default already, spelled out.
+      - name: swift build
+        shell: bash
+        run: |
+          swift build -c release --target UserDefaultsKit ${RUNNER_DEBUG:+-v} \
+            ${SWIFT_SDK:+--swift-sdk "$SWIFT_SDK"} ${SANITIZE:+--sanitize "$SANITIZE"}
+
+      # The trait set is part of the package's public interface, so every configuration a consumer
+      # can ask for has to keep compiling. `Combine` alone is the one that leaves the SwiftUI half
+      # out, and disabling the defaults leaves the umbrella with nothing but the core to re-export,
+      # which is the configuration that would break first if a target ever imported a sibling
+      # unconditionally. `SwiftUI` alone is the defaults again, since it enables `Combine`.
+      #
+      # `--target` is what makes any of these mean anything. A trait decides what the umbrella
+      # depends on, not what the package contains, and a bare `swift build` builds every target in
+      # the root package regardless — so each would compile the halves it was meant to leave out,
+      # and the umbrella's `canImport` would find their modules lying in the build directory and
+      # stay green. Naming the umbrella builds it and what it actually pulls in.
+      #
+      # Not sanitized: it is the same code with targets left out, and nothing about that changes
+      # what a race would be.
+      - name: swift build --traits
+        if: ${{ !matrix.sanitize }}
+        shell: bash
+        run: |
+          for traits in "--traits Combine" "--disable-default-traits"; do
+            echo "::group::$traits"
+            swift build -c release --target UserDefaultsKit $traits ${RUNNER_DEBUG:+-v} \
+              ${SWIFT_SDK:+--swift-sdk "$SWIFT_SDK"}
+            echo "::endgroup::"
+          done
+
+      # The tests' builds, apart from running them, and both configurations in turn; SwiftPM keeps
+      # each one's products apart. A row that cannot run its tests as the others do — Android —
+      # still builds them as the others do, and test code that does not compile for a platform
+      # fails under this name rather than under the run's. What each was built with is kept for the
+      # step that runs it, since the products are only found again under the flags that made them.
+      #
+      # They are not the same program. Release is what ships; debug is where `assertionFailure`
+      # still exists — it is compiled out under `-O`, which was measured rather than assumed, so the
+      # encode failure the setter reports is reachable in that configuration alone. Release is
+      # built with `-enable-testing` because the tests import their modules `@testable`, which
+      # debug allows unasked; that publishes internal symbols and costs the optimizer some of what
+      # it may assume, which is why `swift build` above is the shipping build and this is not.
+      #
+      # A row that says `skip_tests` stops at the builds above, for the reason its entry gives: the
+      # static Linux SDK ships no testing library, Foundation on WebAssembly traps on the tests'
+      # writes, and nothing hosted can run Android on arm64.
+      - name: swift build --build-tests
+        if: ${{ !matrix.skip_tests }}
+        shell: bash
+        run: |
+          for configuration in debug release; do
+            echo "::group::$configuration"
+            test_flags="-c $configuration${SWIFT_SDK:+ --swift-sdk $SWIFT_SDK}${SANITIZE:+ --sanitize $SANITIZE}"
+            if [ "$configuration" = release ]; then test_flags="$test_flags -Xswiftc -enable-testing"; fi
+            echo "${configuration}_test_flags=$test_flags" >> "$GITHUB_ENV"
+            swift build --build-tests ${RUNNER_DEBUG:+-v} $test_flags
+            echo "::endgroup::"
+          done
+
+      # The runner's /dev/kvm is not open to its user until the udev rule says so, and without it
+      # the emulator refuses to start. The image has the SDK tools but neither the emulator nor a
+      # system image. ANDROID_AVD_HOME is spelled out because, left to their defaults on the runner,
+      # avdmanager writes the AVD where the emulator does not look. The boot wait is the only wait,
+      # and bounded: an emulator that died on launch never becomes a device, and
+      # `adb wait-for-device` would sit out the job's whole timeout on it.
+      #
+      # The emulator outlives this step — the runner reaps stray processes when the job ends, not
+      # before — and adb goes on PATH for the step that talks to it.
+      - name: Start the Android emulator
+        if: ${{ matrix.android && !matrix.skip_tests }}
+        shell: bash
+        run: |
+          api="${SWIFT_SDK##*android}"
+          arch="${SWIFT_SDK%%-*}"
+          image="system-images;android-$api;default;$arch"
+          export PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager --install emulator "$image"
+          export ANDROID_AVD_HOME="$RUNNER_TEMP/avd"
+          mkdir -p "$ANDROID_AVD_HOME"
+          echo no | avdmanager create avd --force -n ci --package "$image"
+          nohup emulator -avd ci -cores "$(nproc)" -no-window -no-snapshot -noaudio -no-boot-anim -no-metrics -wipe-data -memory 4096 &
+          timeout 300 bash -c 'until [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d "\r")" = 1 ]; do sleep 5; done'
+
+      # Both configurations in turn, each under the flags its build left behind. A configuration
+      # that fails does not keep the other from running: the step fails at the end, having shown
+      # both.
+      #
+      # The measurement suite is skipped rather than run. It skips itself in debug, but a release
+      # run would otherwise execute `measure` blocks that no baseline can fail and nobody reads —
+      # and `XCTCPUMetric` wants hardware performance counters that a virtualized runner may not
+      # have. Compiling it is the part worth keeping. Away from Darwin it is not compiled at all,
+      # `measure(metrics:)` being Darwin's alone, and the skip matches nothing.
+      #
+      # Android has no such hand-off, so its branch does what `swift test --skip-build` would, by
+      # hand: stage the bundle with every shared library it loads — the Swift runtime from the SDK,
+      # libc++ from the NDK — push the lot, and run it over adb, which hands back the exit status.
+      # Swift Testing only, since there is no XCTest case to run there, and once per runner: Swift
+      # 6.3 builds a single bundle for the package, where 6.4's build system builds a runner for
+      # each test target. Named one at a time: a glob on one line runs the first runner with the
+      # rest as its arguments, which runs one target's tests and succeeds. A function called on the
+      # left of `||` runs without `-e`, so the steps a later one depends on say for themselves that
+      # the function ends with them.
+      - name: Run tests
+        if: ${{ !matrix.skip_tests }}
+        shell: bash
+        run: |
+          run_tests() {
+            local configuration="$1" test_flags="$2"
+
+            if [ -z "$ANDROID" ]; then
+              swift test --skip-build ${RUNNER_DEBUG:+-v} $test_flags --skip PerformanceTests
+              return
+            fi
+
+            local arch="${SWIFT_SDK%%-*}" staging="$RUNNER_TEMP/android-tests-$configuration"
+            local device="/data/local/tmp/tests-$configuration" bin
+            bin="$(swift build --show-bin-path $test_flags)" || return 1
+            mkdir -p "$staging"
+            find "$bin" -maxdepth 1 \( -name '*.xctest' -o -name '*-test-runner' -o -name '*.so' \) -exec cp -a {} "$staging" \;
+            cp -a "$ANDROID_SWIFT_SDK/swift-resources/usr/lib/swift-$arch/android/"*.so "$staging" || return 1
+            cp -aL "$ANDROID_SWIFT_SDK/ndk-sysroot/usr/lib/$arch-linux-android/libc++_shared.so" "$staging" || return 1
+            adb push "$staging" "$device" || return 1
+
+            local runners=("$staging"/*-test-runner) runner status=0
+            if [ ! -e "${runners[0]}" ]; then runners=("$staging"/*.xctest); fi
+            if [ ! -e "${runners[0]}" ]; then echo "No test runner was built." >&2; return 1; fi
+            for runner in "${runners[@]}"; do
+              echo "$(basename "$runner")"
+              adb shell "cd $device && ./$(basename "$runner") --testing-library swift-testing" || status=1
+            done
+            return $status
+          }
+
+          status=0
+          for configuration in debug release; do
+            flags_name="${configuration}_test_flags"
+            echo "::group::$configuration"
+            run_tests "$configuration" "${!flags_name}" || status=1
+            echo "::endgroup::"
+          done
+          exit $status
