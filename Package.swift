@@ -68,9 +68,13 @@ let package = Package(
         // bridge, and `UserDefaults` lives in Foundation anyway, so enabling it links nothing a
         // consumer here was not already linking. A dependency's traits cannot be conditioned on the
         // platform, so it is on everywhere; on Apple platforms it changes nothing.
+        //
+        // From 1.0.0 it brings swift-core-foundation-kit with it, which is what tells a stored object
+        // apart by its CoreFoundation type ID on Apple platforms. Other platforms resolve that
+        // package and build none of it.
         .package(
             url: "https://github.com/sinoru/swift-property-list.git",
-            "0.1.0"..<"0.2.0",
+            from: "1.0.0",
             traits: [.defaults, "ValueFoundation"]
         ),
     ],
