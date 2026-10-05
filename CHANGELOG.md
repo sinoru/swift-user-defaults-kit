@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-06
+
+The first stable release. The API is what 0.0.4 shipped, except that the `SwiftUI` trait no longer brings `Combine` with it, and from here a breaking change means a major version.
+
 ### Changed
 
 - The `SwiftUI` trait no longer enables the `Combine` trait. A `UserDefaultStorage` now hears of a change from the observation underneath `publisher` rather than from `publisher` itself, so nothing in it needs that target — and it no longer reads and decodes the value on every change only to refresh a view that reads it again. A consumer that enables `SwiftUI` alone and uses `publisher` has to enable `Combine` as well; the default set already has both.
@@ -47,7 +51,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Package traits `Combine` and `SwiftUI`, both enabled by default, so a client can leave out the surfaces it does not use. `SwiftUI` enables `Combine` with it, since the view's refresh is driven by the publisher. Both targets are Apple-only regardless of the trait set; turning both off leaves the wrapper, the subscripts, and `values`, which is everything the package offers elsewhere.
 - Support for macOS 12, Mac Catalyst 15, iOS 15, tvOS 15, watchOS 8, and visionOS 1 or later, and for every other platform Foundation builds for. Reading and writing works wherever Foundation does; observing is Darwin-only and absent elsewhere rather than present and silent, since swift-corelibs-foundation has no KVO and posts `didChangeNotification` only for whole-domain changes. Building the package requires Swift 6.3 or later.
 
-[unreleased]: https://github.com/sinoru/swift-user-defaults-kit/compare/v0.0.4...HEAD
+[unreleased]: https://github.com/sinoru/swift-user-defaults-kit/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/sinoru/swift-user-defaults-kit/compare/v0.0.4...v1.0.0
 [0.0.4]: https://github.com/sinoru/swift-user-defaults-kit/compare/v0.0.3...v0.0.4
 [0.0.3]: https://github.com/sinoru/swift-user-defaults-kit/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/sinoru/swift-user-defaults-kit/compare/v0.0.1...v0.0.2
