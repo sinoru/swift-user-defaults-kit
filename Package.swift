@@ -41,20 +41,20 @@ let package = Package(
     // `#if canImport(...)` guards inside the sources.
     traits: [
         .trait(name: "Combine"),
-        .trait(name: "SwiftUI", enabledTraits: ["Combine"]),
+        .trait(name: "SwiftUI"),
         .default(enabledTraits: ["Combine", "SwiftUI"]),
     ],
     dependencies: [
-        // 1.1.2 is the first release where a value copied out of an `RWLock` read is retained
-        // before the lock is released. From 1.0.1 a writer could free it first, and the handler
-        // snapshot `UserDefaults.Observation` takes before calling out is exactly such a copy.
-        // Only the two primitives this package uses are enabled: a trait decides what the
-        // umbrella re-exports, and leaving the asynchronous family off keeps its wait queue out
-        // of every consumer's build graph.
+        // Only the one primitive this package uses is enabled: a trait decides what the umbrella
+        // re-exports, and leaving the rest off keeps the reader-writer lock, the atomics it is
+        // built on, and the asynchronous family's wait queue out of every consumer's build graph.
+        // 1.1.2 was the floor an `RWLock` needed while one guarded an observation's handlers.
+        // `Mutex` asks for nothing that recent, and the floor stays only because nothing lower
+        // has been built against since.
         .package(
             url: "https://github.com/sinoru/swift-synchronization-kit.git",
             from: "1.1.2",
-            traits: ["Mutex", "RWLock"]
+            traits: ["Mutex"]
         ),
         // The value tree a stored `UserDefaults` object is, and the coder pair that reads and writes one
         // without serializing it. Both started here and moved out, because neither is about
@@ -115,10 +115,7 @@ let package = Package(
         ),
         .target(
             name: "UserDefaultsKitSwiftUI",
-            dependencies: [
-                "UserDefaultsKitCore",
-                "UserDefaultsKitCombine",
-            ],
+            dependencies: ["UserDefaultsKitCore"],
             swiftSettings: commonSwiftSettings,
         ),
         .target(

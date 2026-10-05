@@ -396,9 +396,10 @@ jobs:
 
       # The trait set is part of the package's public interface, so every configuration a consumer
       # can ask for has to keep compiling. `Combine` alone is the one that leaves the SwiftUI half
-      # out, and disabling the defaults leaves the umbrella with nothing but the core to re-export,
-      # which is the configuration that would break first if a target ever imported a sibling
-      # unconditionally. `SwiftUI` alone is the defaults again, since it enables `Combine`.
+      # out, and `SwiftUI` alone the one that leaves the Combine half out — which is what would
+      # break if the SwiftUI target went back to leaning on `publisher`. Disabling the defaults
+      # leaves the umbrella with nothing but the core to re-export, which is the configuration
+      # that would break first if a target ever imported a sibling unconditionally.
       #
       # `--target` is what makes any of these mean anything. A trait decides what the umbrella
       # depends on, not what the package contains, and a bare `swift build` builds every target in
@@ -412,7 +413,7 @@ jobs:
         if: ${{ !matrix.sanitize }}
         shell: bash
         run: |
-          for traits in "--traits Combine" "--disable-default-traits"; do
+          for traits in "--traits Combine" "--traits SwiftUI" "--disable-default-traits"; do
             echo "::group::$traits"
             swift build -c release --target UserDefaultsKit $traits ${RUNNER_DEBUG:+-v} \
               ${SWIFT_SDK:+--swift-sdk "$SWIFT_SDK"}

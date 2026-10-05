@@ -165,7 +165,7 @@ The Combine and SwiftUI surfaces each live behind a [package trait](https://gith
 ),
 ```
 
-`Combine` provides `publisher`. `SwiftUI` provides `binding` and `UserDefaultStorage`, and enables `Combine` with it, since the view's refresh is driven by the publisher. Turning both off leaves the wrapper, the subscripts, and `values` — which is everything the package offers away from Apple platforms anyway, where the two targets are not built regardless of the trait set.
+`Combine` provides `publisher`. `SwiftUI` provides `binding` and `UserDefaultStorage`, and stands on its own: the view's refresh is driven by the observation underneath the publisher rather than by the publisher. Turning both off leaves the wrapper, the subscripts, and `values` — which is everything the package offers away from Apple platforms anyway, where the two targets are not built regardless of the trait set.
 
 ## Contributing
 

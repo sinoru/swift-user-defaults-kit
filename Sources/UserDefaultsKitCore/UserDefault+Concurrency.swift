@@ -17,22 +17,20 @@ extension UserDefault {
     /// Values are produced on whichever thread performed the write; iterate from wherever suits.
     public var values: AsyncStream<Value> {
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            let observation = UserDefaults.Observation(key: key, userDefaults: userDefaults)
-
             // Attach before seeding. The other order would drop a write that landed in between.
             // This order usually only repeats a value, since the handler re-reads from
             // `UserDefaults`, but it does not close the window: reading `wrappedValue` and yielding
             // it are two steps, so a write landing between them is yielded by the handler first and
             // then displaced by the older read — under `.bufferingNewest(1)` the newer value is the
             // one dropped. Reaching it takes a concurrent writer.
-            let token = observation.addHandler {
+            let observation = UserDefaults.Observation(key: key, userDefaults: userDefaults) {
                 continuation.yield(self.wrappedValue)
             }
 
             continuation.yield(wrappedValue)
 
             continuation.onTermination = { _ in
-                observation.removeHandler(token)
+                observation.removeHandler()
             }
         }
     }

@@ -4,6 +4,7 @@
 //
 
 #if canImport(SwiftUI)
+import Combine
 import Foundation
 import SwiftUI
 import Testing
@@ -62,7 +63,7 @@ final class UserDefaultBindingTests {
     }
 
     // The @StateObject-backed observation is only installed inside a live view, so this covers the
-    // value/binding round trip; the change-driven refresh is exercised through `UserDefault.publisher`.
+    // value/binding round trip; the change-driven refresh is exercised through the coordinator below.
     @Test
     func userDefaultStorageReadsAndWritesThroughToUserDefaults() {
         let name = UserDefaultStorage(wrappedValue: "anonymous", "name", store: userDefaults)
@@ -90,6 +91,31 @@ final class UserDefaultBindingTests {
         coordinator.observe(UserDefault(key: "second", defaultValue: "", userDefaults: userDefaults))
 
         #expect(coordinator.observed?.key == "second")
+    }
+
+    // The coordinator hears of a change from the observation rather than from a value arriving, so
+    // nothing but this says that a write still reaches the view.
+    @Test
+    func theCoordinatorInvalidatesWhenTheValueChanges() async {
+        let coordinator = Coordinator<String>()
+        let (changes, continuation) = AsyncStream.makeStream(of: Void.self)
+        let cancellable = coordinator.objectWillChange.sink { continuation.yield() }
+        defer { cancellable.cancel() }
+
+        coordinator.observe(UserDefault(key: "name", defaultValue: "", userDefaults: userDefaults))
+        userDefaults.set("Jane Doe", forKey: "name")
+
+        // The invalidation hops to the main queue, so it is waited for — and given up on rather
+        // than waited for indefinitely, which is all a missing one would otherwise look like.
+        let timeout = Task {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            continuation.finish()
+        }
+        defer { timeout.cancel() }
+
+        var iterator = changes.makeAsyncIterator()
+
+        #expect(await iterator.next() != nil)
     }
 
     @Test

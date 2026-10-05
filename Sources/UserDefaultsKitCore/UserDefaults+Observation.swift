@@ -13,7 +13,7 @@ package import Foundation
 import SynchronizationKit
 
 extension UserDefaults {
-    /// Watches a single key and fans each change out to registered handlers.
+    /// Watches a single key and reports each change to the handler it was created with.
     ///
     /// An instance is owned for as long as its changes are wanted and unregisters when it
     /// deinitializes: a Combine subscription, an `AsyncStream`, or a SwiftUI `UserDefaultStorage`
@@ -38,7 +38,12 @@ extension UserDefaults {
         let key: String
         let userDefaults: UserDefaults
 
-        private let handlers = RWLock<[UUID: @Sendable () -> Void]>([:])
+        /// What to call on a change, until ``removeHandler()`` takes it away.
+        ///
+        /// One, because every owner has one thing to do about a change and makes an observation
+        /// of its own to do it. Optional and behind a lock because the owner's teardown has to be
+        /// able to stop it from another thread than the one delivering.
+        private let handler: Mutex<(@Sendable () -> Void)?>
 
         /// What the notification backend last read, boxed so the mutex will take it.
         ///
@@ -64,9 +69,22 @@ extension UserDefaults {
         /// `var` only because the closure it holds needs a fully initialized `self`.
         private var notificationObserver: (any NSObjectProtocol)?
 
-        package init(key: String, userDefaults: UserDefaults) {
+        /// Creates an observation of `key` in `userDefaults` that calls `handler` on every change
+        /// until ``removeHandler()``.
+        ///
+        /// The handler runs on whichever thread noticed the change, so a Combine or async consumer is
+        /// never forced onto the main actor. Under KVO that is the thread that performed the write.
+        /// Under the notification fallback it can be another writer's: every post in the process
+        /// re-reads the key, and whichever reaches the comparison first reports the change — once,
+        /// but possibly just after the write that made it has returned.
+        package init(
+            key: String,
+            userDefaults: UserDefaults,
+            handler: consuming @escaping @Sendable () -> Void
+        ) {
             self.key = key
             self.userDefaults = userDefaults
+            self.handler = Mutex(handler)
 
             super.init()
 
@@ -115,26 +133,20 @@ extension UserDefaults {
             !key.isEmpty && !key.contains(".") && !key.contains("@")
         }
 
-        /// Calls `handler` on every change until the returned token is passed to ``removeHandler(_:)``.
+        /// Stops the handler being called, and lets go of it.
         ///
-        /// The handler runs on whichever thread noticed the change, so a Combine or async consumer is
-        /// never forced onto the main actor. Under KVO that is the thread that performed the write.
-        /// Under the notification fallback it can be another writer's: every post in the process
-        /// re-reads the key, and whichever reaches the comparison first reports the change — once,
-        /// but possibly just after the write that made it has returned.
-        package func addHandler(_ handler: consuming @escaping @Sendable () -> Void) -> UUID {
-            let token = UUID()
-            handlers.withWriteLock { $0[token] = handler }
-            return token
+        /// The key goes on being watched until this deinitializes; there is just nobody left to
+        /// tell. A change being delivered on another thread as this runs may still reach the
+        /// handler once.
+        package func removeHandler() {
+            // Taken out inside the lock and released outside it: letting go of a closure lets go
+            // of whatever it captured, and none of that should run with the lock held.
+            _ = handler.withLock { $0.take() }
         }
 
-        package func removeHandler(_ token: UUID) {
-            handlers.withWriteLock { $0[token] = nil }
-        }
-
-        /// How many handlers are attached. Exposed so a test can confirm teardown unhooks them.
-        var handlerCount: Int {
-            handlers.withReadLock { $0.count }
+        /// Whether the handler is still attached. Exposed so a test can confirm teardown unhooks it.
+        var hasHandler: Bool {
+            handler.withLock { $0 != nil }
         }
 
         package override func observeValue(
@@ -150,7 +162,7 @@ extension UserDefaults {
                 return unsafe super.observeValue(forKeyPath: keyPath, of: object, change: change, context: context)
             }
 
-            callHandlers()
+            callHandler()
         }
 
         /// The fallback's counterpart to ``observeValue(forKeyPath:of:change:context:)``.
@@ -182,18 +194,14 @@ extension UserDefaults {
 
             guard changed else { return }
 
-            callHandlers()
+            callHandler()
         }
 
-        private func callHandlers() {
-            // Snapshot inside the lock, call outside it. A handler is free to re-enter — an
-            // `AsyncStream` terminating from within one calls ``removeHandler(_:)`` — and neither
-            // lock is recursive. Copying the dictionary out is a COW retain rather than an
-            // allocation, so the copy is paid by the next writer, which is the rare path;
-            // building an `Array` here would instead allocate on every change.
-            for handler in handlers.withReadLock({ $0 }).values {
-                handler()
-            }
+        private func callHandler() {
+            // Copied inside the lock, called outside it. A handler is free to re-enter — an
+            // `AsyncStream` terminating from within one calls ``removeHandler()`` — and the lock
+            // is not recursive.
+            handler.withLock { $0 }?()
         }
     }
 }

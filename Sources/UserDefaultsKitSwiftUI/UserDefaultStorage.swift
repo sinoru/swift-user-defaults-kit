@@ -8,7 +8,6 @@ import Combine
 public import Foundation
 public import SwiftUI
 import UserDefaultsKitCore
-import UserDefaultsKitCombine
 
 /// Reads and writes a `Codable` value in `UserDefaults` and refreshes the view when it changes —
 /// including a change made by another process sharing the suite.
@@ -93,20 +92,20 @@ public struct UserDefaultStorage<Value>: DynamicProperty where Value: Codable, V
     }
 }
 
-/// Bridges a `UserDefault`'s change publisher to SwiftUI's view invalidation. `@StateObject` keeps
-/// one alive per view and releases it when the view goes away, which cancels the subscription and lets
-/// the underlying observation deinitialize — so nothing is retained process-wide.
+/// Bridges a change to a `UserDefault`'s key to SwiftUI's view invalidation. `@StateObject` keeps
+/// one alive per view and releases it when the view goes away, which lets the underlying observation
+/// deinitialize — so nothing is retained process-wide.
 ///
-/// The subscription is established from `UserDefaultStorage.update()` rather than from `init`, which
-/// is what lets it follow a key that changes under a view that kept its identity.
+/// The observation is made from `UserDefaultStorage.update()` rather than from `init`, which is
+/// what lets it follow a key that changes under a view that kept its identity.
 final class Coordinator<Value>: ObservableObject where Value: Codable, Value: Sendable {
-    private var cancellable: AnyCancellable?
+    private var observation: UserDefaults.Observation?
 
     /// Where the current subscription points. Readable so a test can confirm it follows the key.
     private(set) var observed: (key: String, store: UserDefaults)?
 
-    /// Subscribes to `userDefault`, and does nothing when already subscribed to the same key in the
-    /// same store — which is every update but the first, so re-subscribing is the rare path.
+    /// Observes `userDefault`'s key, and does nothing when already observing the same key in the
+    /// same store — which is every update but the first, so re-observing is the rare path.
     ///
     /// Stores are compared by instance because `UserDefaults` offers nothing else to compare: it
     /// will not say which suite it opened. That reads the caller's intent correctly as long as the
@@ -119,11 +118,21 @@ final class Coordinator<Value>: ObservableObject where Value: Codable, Value: Se
             return
         }
 
+        // The publisher rather than `self`, which is not `Sendable` and which the handler has no
+        // other use for. Combine never marked its publishers `Sendable` either; this one is only
+        // ever sent from the main queue, here.
+        nonisolated(unsafe) let objectWillChange = objectWillChange
+
+        // A change is all a view needs to hear of. `UserDefault.publisher` would read and decode
+        // the value to say so, on the writing thread, and the view reads it again in `body`
+        // regardless.
         observed = (userDefault.key, store)
-        cancellable = userDefault.publisher
-            .dropFirst()                       // the subscribe-time replay isn't a change
-            .receive(on: DispatchQueue.main)   // KVO fires on the writing thread; invalidate on main
-            .sink { [weak self] _ in self?.objectWillChange.send() }
+        observation = UserDefaults.Observation(key: userDefault.key, userDefaults: store) {
+            // KVO fires on the writing thread; invalidate on main.
+            DispatchQueue.main.async {
+                unsafe objectWillChange.send()
+            }
+        }
     }
 }
 #endif

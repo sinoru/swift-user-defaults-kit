@@ -8,7 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- The `SwiftUI` trait no longer enables the `Combine` trait. A `UserDefaultStorage` now hears of a change from the observation underneath `publisher` rather than from `publisher` itself, so nothing in it needs that target — and it no longer reads and decodes the value on every change only to refresh a view that reads it again. A consumer that enables `SwiftUI` alone and uses `publisher` has to enable `Combine` as well; the default set already has both.
 - The package now requires [swift-property-list](https://github.com/sinoru/swift-property-list) 1.0.0 or later, up from 0.1.0. That is its first stable release, and the one where, on Apple platforms, a stored object is told apart once by its CoreFoundation type ID rather than by a ladder of casts — which every read here goes through. With it comes [swift-core-foundation-kit](https://github.com/sinoru/swift-core-foundation-kit), which a consumer now sees resolving alongside the other two; it is built on Apple platforms alone. The public surface is unchanged.
+- The package now enables only the `Mutex` trait of [swift-synchronization-kit](https://github.com/sinoru/swift-synchronization-kit), where it enabled `Mutex` and `RWLock`. An observation has one handler now, given when it is made, and a `Mutex` guards it — so the reader-writer lock and the atomics under it are no longer part of a consumer's build. The required version is still 1.1.2 or later, and the public surface is unchanged.
 
 ## [0.0.4] - 2026-09-28
 
