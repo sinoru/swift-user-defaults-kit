@@ -10,8 +10,8 @@ import SwiftUI
 import Testing
 import UserDefaultsKitTestSupport
 
-@testable import UserDefaultsKitCore
-@testable import UserDefaultsKitSwiftUI
+import UserDefaultsKitCore
+import UserDefaultsKitSwiftUI
 
 @Suite("UserDefault + Binding")
 final class UserDefaultBindingTests {

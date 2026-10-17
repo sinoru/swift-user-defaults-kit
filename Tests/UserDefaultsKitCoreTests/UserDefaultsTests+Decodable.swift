@@ -9,7 +9,7 @@ import Foundation
 import Testing
 import UserDefaultsKitTestSupport
 
-@testable import UserDefaultsKitCore
+import UserDefaultsKitCore
 
 /// What the kit's subscript *reads*, set up with Foundation's own writers wherever Foundation has a
 /// native representation. A value the kit both wrote and read back proves nothing about whether the

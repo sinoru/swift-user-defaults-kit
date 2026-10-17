@@ -7,7 +7,7 @@
 import Combine
 public import Foundation
 public import SwiftUI
-import UserDefaultsKitCore
+package import UserDefaultsKitCore
 
 /// Reads and writes a `Codable` value in `UserDefaults` and refreshes the view when it changes —
 /// including a change made by another process sharing the suite.
@@ -98,11 +98,15 @@ public struct UserDefaultStorage<Value>: DynamicProperty where Value: Codable, V
 ///
 /// The observation is made from `UserDefaultStorage.update()` rather than from `init`, which is
 /// what lets it follow a key that changes under a view that kept its identity.
-final class Coordinator<Value>: ObservableObject where Value: Codable, Value: Sendable {
+package final class Coordinator<Value>: ObservableObject where Value: Codable, Value: Sendable {
     private var observation: UserDefaults.Observation?
 
+    /// Spelled out: a `package` type's implicit initializer stays `internal`, and the tests make
+    /// one of these without a view around it.
+    package init() {}
+
     /// Where the current subscription points. Readable so a test can confirm it follows the key.
-    private(set) var observed: (key: String, store: UserDefaults)?
+    package private(set) var observed: (key: String, store: UserDefaults)?
 
     /// Observes `userDefault`'s key, and does nothing when already observing the same key in the
     /// same store — which is every update but the first, so re-observing is the rare path.
@@ -111,7 +115,7 @@ final class Coordinator<Value>: ObservableObject where Value: Codable, Value: Se
     /// will not say which suite it opened. That reads the caller's intent correctly as long as the
     /// caller holds its suite, and misreads it when the suite is built inline in the declaration —
     /// see the `store:` note on `UserDefaultStorage.init(wrappedValue:_:store:)`.
-    func observe(_ userDefault: UserDefault<Value>) {
+    package func observe(_ userDefault: UserDefault<Value>) {
         let store = userDefault.userDefaults
 
         if let observed, observed.key == userDefault.key, observed.store === store {

@@ -9,7 +9,7 @@ import Foundation
 import Testing
 import UserDefaultsKitTestSupport
 
-@testable import UserDefaultsKitCore
+import UserDefaultsKitCore
 
 /// What the kit's subscript *writes*, verified with Foundation's own readers rather than by reading
 /// it back through the same subscript. Checking the kit against itself would pass even if it

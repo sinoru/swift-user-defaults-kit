@@ -11,8 +11,8 @@ import Foundation
 import Testing
 import UserDefaultsKitTestSupport
 
-@testable import UserDefaultsKitCore
-@testable import UserDefaultsKitCombine
+import UserDefaultsKitCore
+import UserDefaultsKitCombine
 
 @Suite("UserDefault + Combine")
 final class UserDefaultCombineTests: UserDefaultsTestCase {

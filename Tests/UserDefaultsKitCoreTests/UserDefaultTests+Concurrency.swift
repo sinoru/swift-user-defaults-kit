@@ -9,7 +9,7 @@ import Foundation
 import Testing
 import UserDefaultsKitTestSupport
 
-@testable import UserDefaultsKitCore
+import UserDefaultsKitCore
 
 @Suite("UserDefault + Concurrency")
 final class UserDefaultConcurrencyTests: UserDefaultsTestCase {
