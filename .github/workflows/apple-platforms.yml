@@ -1,37 +1,23 @@
 # Builds the package for every Apple platform it declares support for, through the Xcode build
-# system, and runs its tests wherever a runner can boot the destination.
+# system, and runs its tests wherever a runner can boot the destination. The Xcode-to-Swift
+# mapping, the runner images and the simulator lookup live in sinoru/github-workflows; what is
+# here is what is particular to this package.
 #
-# A different axis from swift.yml rather than a duplicate of it. `swift build` compiles for the host
-# and nothing else, so the only Apple platform it ever compiles is macOS; `Package.swift` claims
-# five more. A claim that is never compiled is a guess, and this is what turns it into a fact —
-# including the two targets that exist only on Apple platforms, `UserDefaultsKit`'s Combine and
-# SwiftUI halves, whose availability rules are not the same on every one. And `xcodebuild`
-# generates its own build graph from the same manifest rather than driving SwiftPM's, so macOS
-# appears in both workflows on purpose.
-#
-# The watchOS *device* row is the only place `Int` is 32 bits. Nothing here narrows against that
-# width any more — the code that did left with the property-list value — but a device SDK is a
-# different target triple from its simulator either way, and this package claims both. Nothing can be
-# run there — no runner has a watch attached — so this compiles that configuration and stops, which
-# is still more than nothing was doing before.
-#
-# What this deliberately does not do is pin old OS runtimes the way swift-synchronization-kit does.
-# That one branches on OS version at run time and back-deploys metadata, so supporting a release is a
-# claim only that release can settle. Nothing here has an `#available` in it, and its one
-# `@available` is on a test rather than on shipped behaviour: what this package does is the same on
-# every version of a platform, so a second version of one would repeat a multi-gigabyte download to
-# say nothing.
+# This is a different axis from swift.yml, not a duplicate of it. `swift build` compiles for the
+# host alone, so the five other Apple platforms the manifest claims are never compiled there;
+# `xcodebuild` generates its own build graph from the same manifest, which is why macOS appears
+# in both workflows on purpose. The Combine and SwiftUI halves of the package are Apple-only,
+# and their availability rules differ by platform, which is what the crossing checks.
 
 name: Apple Platforms
 
 # Pushes only fire on the branches git-flow keeps around: the two long-lived ones plus the
-# release-prep pair. Short-lived feature branches are covered by the pull_request trigger when they
-# open against one of these, so listing them here would only run this matrix twice for the same
-# commit.
+# release-prep pair. Short-lived feature branches are covered by the pull_request trigger when
+# they open against develop, so listing them here would only run the same commit twice.
 #
-# And only for a change that can alter what is built here: the sources, the tests, the manifest and
-# what it resolved to, and this file. A commit to the README or the changelog runs nothing. A branch
-# filter and a path filter must both be satisfied.
+# And only for a change that can alter what is built here: the sources, the tests, the manifest
+# and what it resolved to, and this file. A commit to the README or the changelog runs nothing.
+# A branch filter and a path filter must both be satisfied.
 on:
   push:
     branches: [main, develop, "release/**", "hotfix/**"]
@@ -50,144 +36,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: ${{ matrix.platform.name }} · ${{ matrix.xcode.name }}
-    runs-on: ${{ matrix.xcode.runner }}
-    # Nothing here should take minutes, and the alternative backstop is GitHub's 360-minute default.
-    timeout-minutes: 45
-    env:
-      DEVELOPER_DIR: ${{ matrix.xcode.developer_dir }}
-    strategy:
-      fail-fast: false
-      # Two axes, crossed. The Xcode axis is the one swift.yml already runs: the newest patch of
-      # each Swift minor the package supports, reached through the minor-level symlink the runner
-      # keeps at the current patch (Xcode_26.6.app -> Xcode_26.6.1.app) so it survives patch churn.
-      # Here it moves the platform SDKs as well, which is what makes it worth crossing with the
-      # platform axis rather than sampling one corner of it. An entry names its runner too, because
-      # no one image carries every Xcode: Xcode 27 is only on `xcode-27`, a preview of the macOS 27
-      # image, and nothing older is on it.
-      #
-      # Device and simulator are separate SDKs and separate target triples, so they fail
-      # independently.
-      #
-      # A row that can run its tests says how to name a destination xcodebuild can launch:
-      # test_destination where the platform names itself, simulator_runtime where a device has to be
-      # looked up. The device rows carry neither and stop after the build, since nothing is attached
-      # to a runner to run their binaries on.
-      matrix:
-        xcode:
-          - name: "Swift 6.3.3"
-            runner: macos-26
-            developer_dir: /Applications/Xcode_26.6.app/Contents/Developer
-          - name: "Swift 6.4"
-            runner: xcode-27
-            developer_dir: /Applications/Xcode_27.0.app/Contents/Developer
-        platform:
-          # Both name their variant. `generic/platform=macOS` alone matches the Catalyst
-          # destination as well, and xcodebuild answers that by taking "the first of multiple
-          # matching destinations" in an order it does not publish — so the row whose whole purpose
-          # is to be the *other* axis could silently become this one, and stay green while doing it.
-          # The test destination needs an architecture on top to come out unambiguous.
-          - name: "macOS"
-            destination: "generic/platform=macOS,variant=macos"
-            test_destination: "platform=macOS,arch=arm64,variant=macos"
-          - name: "Mac Catalyst"
-            destination: "generic/platform=macOS,variant=Mac Catalyst"
-            test_destination: "platform=macOS,arch=arm64,variant=Mac Catalyst"
-          - name: "iOS"
-            destination: "generic/platform=iOS"
-          - name: "iOS Simulator"
-            destination: "generic/platform=iOS Simulator"
-            simulator_runtime: iOS
-          - name: "tvOS"
-            destination: "generic/platform=tvOS"
-          - name: "tvOS Simulator"
-            destination: "generic/platform=tvOS Simulator"
-            simulator_runtime: tvOS
-          - name: "watchOS"
-            destination: "generic/platform=watchOS"
-          - name: "watchOS Simulator"
-            destination: "generic/platform=watchOS Simulator"
-            simulator_runtime: watchOS
-          - name: "visionOS"
-            destination: "generic/platform=visionOS"
-          # visionOS answers to xrOS in CoreSimulator's runtime identifiers, which is the spelling
-          # the lookup below matches against.
-          - name: "visionOS Simulator"
-            destination: "generic/platform=visionOS Simulator"
-            simulator_runtime: xrOS
-    steps:
-      - uses: actions/checkout@v7
-      - run: xcodebuild -version
-
-      # build-for-testing rather than build: it compiles the test targets as well, which is where
-      # the availability annotations are actually exercised, and a generic destination covers every
-      # architecture its SDK supports where the concrete one the run below needs does not.
-      #
-      # Both configurations in turn, as swift.yml does and for its reasons: debug and release are
-      # not the same program, and only one of them is what ships. The configuration is stated
-      # rather than left to the scheme: nothing here commits a scheme, so `-scheme UserDefaultsKit`
-      # resolves to the one SwiftPM generates, whose build and test actions default to Debug.
-      #
-      # Testability has to be asked for because the test targets import their modules `@testable`.
-      # In Debug it is already on; in Release it is not, and it is what makes the two differ by the
-      # optimizer alone rather than by what the test targets can see.
-      #
-      # Both name the same derived data, where Xcode keeps each configuration's products apart, and
-      # the run that follows reuses what was built here instead of compiling the package again. The
-      # default traits are left on: a consumer opting out is a different configuration, and
-      # swift.yml is where those are compiled.
-      - name: xcodebuild build-for-testing
-        run: |
-          for configuration in Debug Release; do
-            echo "::group::$configuration"
-            xcodebuild build-for-testing \
-              -scheme UserDefaultsKit \
-              -destination '${{ matrix.platform.destination }}' \
-              -configuration "$configuration" \
-              SWIFT_ENABLE_TESTABILITY=YES \
-              -derivedDataPath "$RUNNER_TEMP/DerivedData"
-            echo "::endgroup::"
-          done
-
-      # Tests need a destination xcodebuild can launch, which rules out the generic ones above.
-      # macOS and Mac Catalyst name themselves; a simulator row states its runtime and this picks a
-      # device out of the copy that this Xcode ships, because the runner image's device list turns
-      # over with every release and a hardcoded name would rot. jq fails the step rather than
-      # resolving to a null id if the runtime is missing.
-      #
-      # A row that can run nothing leaves the variable empty, and the step after this drops out.
-      - name: Resolve the test destination
-        run: |
-          if [ -n "${{ matrix.platform.simulator_runtime }}" ]; then
-            udid=$(xcrun simctl list devices available --json | jq -er \
-              --arg prefix "com.apple.CoreSimulator.SimRuntime.${{ matrix.platform.simulator_runtime }}" \
-              '[.devices | to_entries[] | select(.key | startswith($prefix)) | .value[]][0].udid')
-            echo "TEST_DESTINATION=id=$udid" >> "$GITHUB_ENV"
-          else
-            echo "TEST_DESTINATION=${{ matrix.platform.test_destination }}" >> "$GITHUB_ENV"
-          fi
-
-      # Both configurations in turn. A configuration that fails does not keep the other from
-      # running: the step fails at the end, having shown both.
-      #
-      # The measurement suite is skipped for the reason swift.yml skips it: a release run would
-      # otherwise execute `measure` blocks that no baseline can fail and nobody reads, on a
-      # simulator, where `XCTCPUMetric` wants hardware performance counters it may not have. Stated
-      # for both configurations — in debug it already skips itself, so naming it only in release
-      # would be the same instruction written in two places.
-      - name: xcodebuild test-without-building
-        if: env.TEST_DESTINATION
-        run: |
-          status=0
-          for configuration in Debug Release; do
-            echo "::group::$configuration"
-            xcodebuild test-without-building \
-              -scheme UserDefaultsKit \
-              -destination "$TEST_DESTINATION" \
-              -configuration "$configuration" \
-              -skip-testing:UserDefaultsKitCoreTests/UserDefaultsPerformanceTests \
-              -derivedDataPath "$RUNNER_TEMP/DerivedData" || status=1
-            echo "::endgroup::"
-          done
-          exit $status
+  # Both configurations, and in each every suite but one. The performance measurements skip
+  # themselves in Debug and are skipped here in Release too: their `measure` blocks have no
+  # baseline to fail against, and `XCTCPUMetric` wants hardware counters a shared runner does
+  # not give. Release is tested as shipped: nothing here is `@testable`, what the tests reach
+  # past the public API being `package`.
+  #
+  # The Swift axis moves the platform SDKs along with the compiler, which is what makes it worth
+  # crossing with the platforms rather than sampling one corner. Device and simulator are
+  # separate SDKs and separate target triples, so they fail independently; the device rows have
+  # nothing to run on and stop after the build. No older OS runtime is pinned: the package's one
+  # `@available` is on a test, so its behavior does not vary by OS release, and an extra runtime
+  # would be a multi-gigabyte download that tests nothing new.
+  apple-platforms:
+    uses: sinoru/github-workflows/.github/workflows/apple-platforms.yml@main
+    with:
+      scheme: UserDefaultsKit
+      swift: '["6.3", "6.4"]'
+      configurations: |
+        [
+          { "name": "Debug", "skip": "PerformanceTests" },
+          { "name": "Release", "skip": "PerformanceTests" }
+        ]
+      targets: |
+        [
+          "arm64-apple-macosx",
+          "arm64-apple-ios-macabi",
+          "arm64-apple-ios",
+          "arm64-apple-ios-simulator",
+          "arm64-apple-tvos",
+          "arm64-apple-tvos-simulator",
+          "arm64_32-apple-watchos",
+          "arm64-apple-watchos-simulator",
+          "arm64-apple-xros",
+          "arm64-apple-xros-simulator"
+        ]
