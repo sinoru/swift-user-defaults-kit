@@ -36,11 +36,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Both configurations, and in each every suite but one. The performance measurements skip
-  # themselves in Debug and are skipped here in Release too: their `measure` blocks have no
-  # baseline to fail against, and `XCTCPUMetric` wants hardware counters a shared runner does
-  # not give. Release is tested as shipped: nothing here is `@testable`, what the tests reach
-  # past the public API being `package`.
+  # Both configurations, every suite in each. Release is tested as shipped: nothing here is
+  # `@testable`, what the tests reach past the public API being `package`.
   #
   # The Swift axis moves the platform SDKs along with the compiler, which is what makes it worth
   # crossing with the platforms rather than sampling one corner. Device and simulator are
@@ -53,11 +50,7 @@ jobs:
     with:
       scheme: UserDefaultsKit
       swift: '["6.3", "6.4"]'
-      configurations: |
-        [
-          { "name": "Debug", "skip": "PerformanceTests" },
-          { "name": "Release", "skip": "PerformanceTests" }
-        ]
+      configurations: '["Debug", "Release"]'
       targets: |
         [
           "arm64-apple-macosx",
