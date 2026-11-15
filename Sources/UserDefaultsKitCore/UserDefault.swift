@@ -54,8 +54,8 @@ public struct UserDefault<Value>: Sendable where Value: Codable, Value: Sendable
 
     /// The defaults database the value lives in.
     ///
-    /// `UserDefaults.standard` unless the wrapper was given a suite, which is how a value is shared
-    /// with an app extension or with another member of an app group.
+    /// `UserDefaults.standard` unless the wrapper was given a suite — as an instance or by name —
+    /// which is how a value is shared with an app extension or with another member of an app group.
     public var userDefaults: UserDefaults { unsafe _userDefaults }
 
     /// Backs ``userDefaults``, and the reason that one is computed.
@@ -136,5 +136,45 @@ public struct UserDefault<Value>: Sendable where Value: Codable, Value: Sendable
     ///     app extension or another member of an app group.
     public init(wrappedValue defaultValue: Value, _ key: String, store: UserDefaults = .standard) {
         self.init(key: key, defaultValue: defaultValue, userDefaults: store)
+    }
+
+    /// Creates a wrapper over the value stored under a key in a suite, named rather than passed.
+    ///
+    /// The suite is opened here, so the caller has no `UserDefaults` to hold — which matters where
+    /// holding one is awkward: `UserDefaults` is not `Sendable`, and a `static let` of it does not
+    /// compile in the Swift 6 language mode without opting out of the check. A name is a `String`.
+    ///
+    /// - Parameters:
+    ///   - key: The key to read and write. A key containing `.` or `@` only observes this process's
+    ///     own writes; see ``key``.
+    ///   - defaultValue: The value to report while the key holds nothing readable as `Value`.
+    ///   - suiteName: The app group identifier, or other suite name, to read and write — what
+    ///     `UserDefaults(suiteName:)` takes.
+    ///
+    /// - Precondition: `suiteName` is a name `UserDefaults(suiteName:)` opens. One it refuses,
+    ///   `UserDefaults.globalDomain` among them, is a mistake in the declaration and traps.
+    public init(key: String, defaultValue: Value, suiteName: String) {
+        self.init(key: key, defaultValue: defaultValue, userDefaults: .makeSuite(named: suiteName))
+    }
+
+    /// Creates a wrapper over a suite, named rather than passed, that takes its default from the
+    /// declaration it is attached to.
+    ///
+    /// ```swift
+    /// @UserDefault("username", suiteName: "group.com.example.app") var username = "anonymous"
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - defaultValue: The value to report while the key holds nothing readable as `Value`,
+    ///     supplied as the wrapped property's initial value.
+    ///   - key: The key to read and write. A key containing `.` or `@` only observes this process's
+    ///     own writes; see ``key``.
+    ///   - suiteName: The app group identifier, or other suite name, to read and write — what
+    ///     `UserDefaults(suiteName:)` takes.
+    ///
+    /// - Precondition: `suiteName` is a name `UserDefaults(suiteName:)` opens. One it refuses,
+    ///   `UserDefaults.globalDomain` among them, is a mistake in the declaration and traps.
+    public init(wrappedValue defaultValue: Value, _ key: String, suiteName: String) {
+        self.init(key: key, defaultValue: defaultValue, suiteName: suiteName)
     }
 }

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `UserDefault` and `UserDefaultStorage` take a suite by name — `@UserDefaultStorage("username", suiteName: "group.com.example.app")` — alongside the instance they already took as `store:`. `UserDefaults(suiteName:)` returns a new instance on every call and will not say which suite it opened, so a `UserDefaultStorage` handed one built in its declaration saw a different store each time the view was rebuilt, and tore its observation down and made it again to follow. Given the name, it compares the name and keeps the observation it has. There is also no `UserDefaults` left for the caller to hold, which in the Swift 6 language mode a `static let` could not do without opting out of the `Sendable` check. A name Foundation refuses to open, `UserDefaults.globalDomain` among them, traps rather than falling back to `standard`, where a value meant for an app group would land in the app's own domain and nothing would say so.
+
 ## [1.0.0] - 2026-10-06
 
 The first stable release. The API is what 0.0.4 shipped, except that the `SwiftUI` trait no longer brings `Combine` with it, and from here a breaking change means a major version.

@@ -100,6 +100,14 @@ struct SettingsView: View {
 }
 ```
 
+To share a value with an app extension or another member of an app group, name the suite:
+
+```swift
+@UserDefaultStorage("username", suiteName: "group.com.example.app") var username = "anonymous"
+```
+
+`@UserDefault` takes `suiteName:` too, and both also take an instance as `store:`, the way `@AppStorage` does. In a view the name is the one to reach for. `UserDefaults(suiteName:)` returns a new instance on every call and will not say which suite it opened, so an instance built in the declaration is a different store each time the view is rebuilt, and the observation is torn down and made again to follow it. A name can be compared, so the observation stays put — and there is no `UserDefaults` to keep in a `static let`, which the Swift 6 language mode refuses for a type that is not `Sendable`. A name Foundation will not open, `UserDefaults.globalDomain` among them, is a mistake in the declaration and traps.
+
 Nothing here is process-lifetime state. Each subscription, stream, and view creates and holds its own observation and unregisters when it goes away.
 
 Key-Value Observing is what carries the cross-process promise, and it reads a key as a *key path* — so an empty key, or one containing `.` or `@`, cannot be observed as the literal key it is. Such a key still reads and writes correctly and its changes are still delivered, but by a weaker fallback that sees only this process. Prefer a key without `.`/`@` for anything that has to follow an app extension or another app-group member.
