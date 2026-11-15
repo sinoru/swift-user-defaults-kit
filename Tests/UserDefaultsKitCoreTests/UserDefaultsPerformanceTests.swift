@@ -30,8 +30,7 @@ import UserDefaultsKitCore
 /// Every case is skipped in a debug build, where an unoptimized measurement says nothing about
 /// anything, so an ordinary `swift test` is untouched. Measure in release:
 ///
-///     swift test -c release -Xswiftc -enable-testing \
-///         --filter UserDefaultsPerformanceTests
+///     swift test -c release --filter UserDefaultsPerformanceTests
 ///
 /// Nothing here fails on a regression. A number means something next to the number beside it, not
 /// next to one from another machine.
