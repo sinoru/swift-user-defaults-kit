@@ -9,7 +9,7 @@ import Foundation
 import Testing
 import UserDefaultsKitTestSupport
 
-@testable import UserDefaultsKitCore
+import UserDefaultsKitCore
 
 @Suite("UserDefault")
 final class UserDefaultTests: UserDefaultsTestCase {
@@ -81,6 +81,39 @@ final class UserDefaultTests: UserDefaultsTestCase {
     @Test
     func takesItsDefaultFromTheDeclaration() {
         @UserDefault("count", store: userDefaults)
+        var count = 7
+
+        #expect(count == 7)
+
+        count = 42
+
+        #expect(userDefaults.integer(forKey: "count") == 42)
+        #expect($count.defaultValue == 7)
+    }
+
+    // MARK: - Suite Name
+
+    // The wrapper opens an instance of its own, so what is being asserted is that it opened the
+    // suite the test holds another instance of — in both directions.
+    @Test
+    func readsAndWritesTheSuiteItWasGivenTheNameOf() {
+        let count = UserDefault(key: "count", defaultValue: 7, suiteName: suiteName)
+
+        #expect(count.userDefaults !== userDefaults)
+        #expect(count.wrappedValue == 7)
+
+        count.wrappedValue = 42
+
+        #expect(userDefaults.integer(forKey: "count") == 42)
+
+        userDefaults.set(43, forKey: "count")
+
+        #expect(count.wrappedValue == 43)
+    }
+
+    @Test
+    func takesASuiteNameInTheDeclaration() {
+        @UserDefault("count", suiteName: suiteName)
         var count = 7
 
         #expect(count == 7)

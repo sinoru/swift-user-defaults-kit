@@ -10,8 +10,8 @@ import SwiftUI
 import Testing
 import UserDefaultsKitTestSupport
 
-@testable import UserDefaultsKitCore
-@testable import UserDefaultsKitSwiftUI
+import UserDefaultsKitCore
+import UserDefaultsKitSwiftUI
 
 @Suite("UserDefault + Binding")
 final class UserDefaultBindingTests {
@@ -98,15 +98,23 @@ final class UserDefaultBindingTests {
     @Test
     func theCoordinatorInvalidatesWhenTheValueChanges() async {
         let coordinator = Coordinator<String>()
+
+        coordinator.observe(UserDefault(key: "name", defaultValue: "", userDefaults: userDefaults))
+
+        #expect(await invalidates(coordinator) { userDefaults.set("Jane Doe", forKey: "name") })
+    }
+
+    /// Whether `coordinator` invalidates once `write` has run.
+    ///
+    /// The invalidation hops to the main queue, so it is waited for — and given up on rather than
+    /// waited for indefinitely, which is all a missing one would otherwise look like.
+    private func invalidates(_ coordinator: Coordinator<String>, after write: () -> Void) async -> Bool {
         let (changes, continuation) = AsyncStream.makeStream(of: Void.self)
         let cancellable = coordinator.objectWillChange.sink { continuation.yield() }
         defer { cancellable.cancel() }
 
-        coordinator.observe(UserDefault(key: "name", defaultValue: "", userDefaults: userDefaults))
-        userDefaults.set("Jane Doe", forKey: "name")
+        write()
 
-        // The invalidation hops to the main queue, so it is waited for — and given up on rather
-        // than waited for indefinitely, which is all a missing one would otherwise look like.
         let timeout = Task {
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             continuation.finish()
@@ -115,7 +123,7 @@ final class UserDefaultBindingTests {
 
         var iterator = changes.makeAsyncIterator()
 
-        #expect(await iterator.next() != nil)
+        return await iterator.next() != nil
     }
 
     @Test
@@ -128,11 +136,68 @@ final class UserDefaultBindingTests {
 
         coordinator.observe(UserDefault(key: "name", defaultValue: "", userDefaults: userDefaults))
 
-        #expect(coordinator.observed?.store === userDefaults)
+        #expect(coordinator.observed?.store == .instance(userDefaults))
 
         coordinator.observe(UserDefault(key: "name", defaultValue: "", userDefaults: other))
 
-        #expect(coordinator.observed?.store === other)
+        #expect(coordinator.observed?.store == .instance(other))
+    }
+
+    // MARK: - Suite Name
+
+    @Test
+    func userDefaultStorageReadsAndWritesTheSuiteItWasGivenTheNameOf() {
+        let name = UserDefaultStorage(wrappedValue: "anonymous", "name", suiteName: suiteName)
+
+        #expect(name.wrappedValue == "anonymous")
+
+        name.wrappedValue = "Jane Doe"
+
+        #expect(userDefaults.string(forKey: "name") == "Jane Doe")
+        #expect(name.projectedValue.wrappedValue == "Jane Doe")
+    }
+
+    // What a view declared with `suiteName:` does on every rebuild: the wrapper is made again, opens
+    // an instance of its own, and hands that to the coordinator. Compared by instance that would
+    // be a new store each time; the name is what says it is not. The write goes through the later
+    // instance because that is the one the view would be writing through by then.
+    @Test
+    func theCoordinatorKeepsItsObservationWhileTheSuiteNameIsTheSame() async throws {
+        let first = UserDefault(key: "name", defaultValue: "", suiteName: suiteName)
+        let second = UserDefault(key: "name", defaultValue: "", suiteName: suiteName)
+
+        let coordinator = Coordinator<String>()
+
+        coordinator.observe(first, suiteName: suiteName)
+
+        let observation = try #require(coordinator.observation)
+
+        coordinator.observe(second, suiteName: suiteName)
+
+        #expect(first.userDefaults !== second.userDefaults)
+        #expect(coordinator.observation === observation)
+
+        #expect(await invalidates(coordinator) { second.wrappedValue = "Jane Doe" })
+    }
+
+    @Test
+    func theCoordinatorFollowsAChangedSuiteName() throws {
+        let otherSuiteName = "\(suiteName).other"
+        let other = UserDefault(key: "name", defaultValue: "", suiteName: otherSuiteName)
+        defer { other.userDefaults.removePersistentDomain(forName: otherSuiteName) }
+
+        let coordinator = Coordinator<String>()
+
+        coordinator.observe(
+            UserDefault(key: "name", defaultValue: "", suiteName: suiteName),
+            suiteName: suiteName
+        )
+
+        #expect(coordinator.observed?.store == .suite(named: suiteName))
+
+        coordinator.observe(other, suiteName: otherSuiteName)
+
+        #expect(coordinator.observed?.store == .suite(named: otherSuiteName))
     }
 }
 #endif

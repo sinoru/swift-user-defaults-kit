@@ -145,7 +145,7 @@ extension UserDefaults {
         }
 
         /// Whether the handler is still attached. Exposed so a test can confirm teardown unhooks it.
-        var hasHandler: Bool {
+        package var hasHandler: Bool {
             handler.withLock { $0 != nil }
         }
 

@@ -10,7 +10,7 @@ import SynchronizationKit
 import Testing
 import UserDefaultsKitTestSupport
 
-@testable import UserDefaultsKitCore
+import UserDefaultsKitCore
 
 /// `UserDefaults.Observation` is the one place the package talks to KVO, and to the notification it
 /// falls back to. These exercise it directly — the change surfaces (`publisher`, `values`, SwiftUI)
