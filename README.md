@@ -106,7 +106,7 @@ To share a value with an app extension or another member of an app group, name t
 @UserDefaultStorage("username", suiteName: "group.com.example.app") var username = "anonymous"
 ```
 
-`@UserDefault` takes `suiteName:` too, and both also take an instance as `store:`, the way `@AppStorage` does. In a view the name is the one to reach for. `UserDefaults(suiteName:)` returns a new instance on every call and will not say which suite it opened, so an instance built in the declaration is a different store each time the view is rebuilt, and the observation is torn down and made again to follow it. A name can be compared, so the observation stays put — and there is no `UserDefaults` to keep in a `static let`, which the Swift 6 language mode refuses for a type that is not `Sendable`. A name Foundation will not open, `UserDefaults.globalDomain` among them, is a mistake in the declaration and traps.
+`@UserDefault` takes `suiteName:` too, and both also take an instance as `store:`, the way `@AppStorage` does. In a view the name is the one to reach for: `UserDefaults(suiteName:)` returns a new instance on every call, so one built in the declaration has the observation torn down and made again each time the view is rebuilt, while a name can be compared and the observation stays put. A name Foundation will not open, `UserDefaults.globalDomain` among them, traps.
 
 Nothing here is process-lifetime state. Each subscription, stream, and view creates and holds its own observation and unregisters when it goes away.
 
@@ -147,7 +147,7 @@ To use this package in a SwiftPM project, add the following to your `Package.swi
 dependencies: [
     .package(
         url: "https://github.com/sinoru/swift-user-defaults-kit.git",
-        from: "1.0.0"
+        from: "1.1.0"
     ),
 ]
 ```
@@ -168,7 +168,7 @@ The Combine and SwiftUI surfaces each live behind a [package trait](https://gith
 ```swift
 .package(
     url: "https://github.com/sinoru/swift-user-defaults-kit.git",
-    from: "1.0.0",
+    from: "1.1.0",
     traits: ["Combine"]
 ),
 ```
