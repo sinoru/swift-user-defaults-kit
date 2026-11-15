@@ -6,9 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-15
+
 ### Added
 
-- `UserDefault` and `UserDefaultStorage` take a suite by name — `@UserDefaultStorage("username", suiteName: "group.com.example.app")` — alongside the instance they already took as `store:`. `UserDefaults(suiteName:)` returns a new instance on every call and will not say which suite it opened, so a `UserDefaultStorage` handed one built in its declaration saw a different store each time the view was rebuilt, and tore its observation down and made it again to follow. Given the name, it compares the name and keeps the observation it has. There is also no `UserDefaults` left for the caller to hold, which in the Swift 6 language mode a `static let` could not do without opting out of the `Sendable` check. A name Foundation refuses to open, `UserDefaults.globalDomain` among them, traps rather than falling back to `standard`, where a value meant for an app group would land in the app's own domain and nothing would say so.
+- `UserDefault` and `UserDefaultStorage` take a suite by name — `@UserDefaultStorage("username", suiteName: "group.com.example.app")` — alongside the instance they already took as `store:`. `UserDefaults(suiteName:)` returns a new instance on every call, so a `UserDefaultStorage` handed one built in its declaration tore its observation down and made it again each time the view was rebuilt; given the name, it compares the name and keeps the observation it has. A name Foundation refuses to open, `UserDefaults.globalDomain` among them, traps rather than falling back to `standard`.
 
 ## [1.0.0] - 2026-10-06
 
@@ -55,7 +57,8 @@ The first stable release. The API is what 0.0.4 shipped, except that the `SwiftU
 - Package traits `Combine` and `SwiftUI`, both enabled by default, so a client can leave out the surfaces it does not use. `SwiftUI` enables `Combine` with it, since the view's refresh is driven by the publisher. Both targets are Apple-only regardless of the trait set; turning both off leaves the wrapper, the subscripts, and `values`, which is everything the package offers elsewhere.
 - Support for macOS 12, Mac Catalyst 15, iOS 15, tvOS 15, watchOS 8, and visionOS 1 or later, and for every other platform Foundation builds for. Reading and writing works wherever Foundation does; observing is Darwin-only and absent elsewhere rather than present and silent, since swift-corelibs-foundation has no KVO and posts `didChangeNotification` only for whole-domain changes. Building the package requires Swift 6.3 or later.
 
-[unreleased]: https://github.com/sinoru/swift-user-defaults-kit/compare/v1.0.0...HEAD
+[unreleased]: https://github.com/sinoru/swift-user-defaults-kit/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/sinoru/swift-user-defaults-kit/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/sinoru/swift-user-defaults-kit/compare/v0.0.4...v1.0.0
 [0.0.4]: https://github.com/sinoru/swift-user-defaults-kit/compare/v0.0.3...v0.0.4
 [0.0.3]: https://github.com/sinoru/swift-user-defaults-kit/compare/v0.0.2...v0.0.3

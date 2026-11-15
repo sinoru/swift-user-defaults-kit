@@ -106,7 +106,7 @@ To share a value with an app extension or another member of an app group, name t
 @UserDefaultStorage("username", suiteName: "group.com.example.app") var username = "anonymous"
 ```
 
-`@UserDefault` takes `suiteName:` too, and both also take an instance as `store:`, the way `@AppStorage` does. In a view the name is the one to reach for. `UserDefaults(suiteName:)` returns a new instance on every call and will not say which suite it opened, so an instance built in the declaration is a different store each time the view is rebuilt, and the observation is torn down and made again to follow it. A name can be compared, so the observation stays put — and there is no `UserDefaults` to keep in a `static let`, which the Swift 6 language mode refuses for a type that is not `Sendable`. A name Foundation will not open, `UserDefaults.globalDomain` among them, is a mistake in the declaration and traps.
+`@UserDefault` takes `suiteName:` too, and both also take an instance as `store:`, the way `@AppStorage` does. In a view the name is the one to reach for: `UserDefaults(suiteName:)` returns a new instance on every call, so one built in the declaration has the observation torn down and made again each time the view is rebuilt, while a name can be compared and the observation stays put. A name Foundation will not open, `UserDefaults.globalDomain` among them, traps.
 
 Nothing here is process-lifetime state. Each subscription, stream, and view creates and holds its own observation and unregisters when it goes away.
 
@@ -129,15 +129,35 @@ Building the package requires Swift 6.3 or later.
 
 `swift test` needs no arguments and takes no environment variables. On Linux, add `--no-parallel`: Foundation there can lose a `UserDefaults` write when two threads use it at once, even on separate suites ([swiftlang/swift-corelibs-foundation#5581](https://github.com/swiftlang/swift-corelibs-foundation/issues/5581)), so tests running in parallel fail now and then for no fault of their own.
 
-The one thing a plain run leaves out is the measurements, which a debug build skips because an unoptimized one says nothing, and which skip themselves when ThreadSanitizer is attached. They read a scalar three ways: through the subscript, through the `object(forKey:)` cast ladder the decoder took over from, and through `integer(forKey:)`, which is Foundation's own accessor for the same key and stands as a floor. They also write a scalar, an array and a structure through the subscript, beside `set(_:forKey:)` wherever Foundation has one. Read the numbers; nothing there fails on a regression, because a number means something next to the number beside it rather than next to one from another machine.
-
-```sh
-swift test -c release -Xswiftc -enable-testing --filter PerformanceTests
-```
-
 CI builds and tests in both configurations with Swift 6.3 and 6.4, on macOS, on Linux and Windows — each on x86_64 and arm64 — and on Android on an emulator; it builds for musl, for WebAssembly and for Android on arm64 without running anything there. On WebAssembly that is Foundation's doing: its `UserDefaults` traps on writing an array there ([swiftlang/swift-corelibs-foundation#5580](https://github.com/swiftlang/swift-corelibs-foundation/issues/5580)). macOS and Linux also run the tests under ThreadSanitizer and under AddressSanitizer. Release is what ships and the only configuration Swift's default cross-module optimization applies to — every read and write here crosses a module boundary. Debug is where `assertionFailure` still exists: it is compiled out under `-O`, which was measured rather than assumed, so the encode failure the setter reports is reachable in that configuration alone.
 
 `swift build` compiles for the host and nothing else, so a separate workflow drives the same manifest through the Xcode build system for every Apple platform the manifest claims — device and simulator each, since those are separate SDKs and separate target triples that fail independently.
+
+### Running the benchmarks
+
+The measurements are a package of their own, under `Benchmarks`, so that the harness they run on — [Benchmark](https://github.com/ordo-one/benchmark) — is never among what a consumer of this one resolves. They read a scalar three ways: through the subscript, through the `object(forKey:)` cast ladder the decoder took over from, and through `integer(forKey:)`, which is Foundation's own accessor for the same key and stands as a floor. They also write a scalar, an array and a structure through the subscript, beside `set(_:forKey:)` wherever Foundation has one. Each runs against a `UserDefaults` suite of its own, emptied when it finishes.
+
+```sh
+cd Benchmarks
+swift package --disable-sandbox benchmark
+```
+
+`--disable-sandbox` is not optional on macOS. SwiftPM runs a plugin in a sandbox that cannot write to `~/Library/Preferences`, and the defaults daemon turns down a write from a process that could not have made it itself — silently, the value still reading back from the process's own cache. A write measured that way is a refusal — for a scalar, nearly twice the instructions of one that is kept — so the benchmarks check for it and stop rather than report it.
+
+Read the numbers; nothing there fails on a regression, because a number means something next to the number beside it, or next to a baseline from the same machine, rather than next to one from another machine. A baseline is how a change is held against what came before it: record one, make the change, and compare.
+
+```sh
+swift package --disable-sandbox benchmark baseline update before
+swift package --disable-sandbox benchmark baseline compare before
+```
+
+On macOS each run leaves eight empty property lists behind, one per suite: removing a suite takes its keys out, and the defaults daemon keeps an empty file where it was and puts it back if a process deletes it straight away. They are 42 bytes each and safe to delete afterwards:
+
+```sh
+rm ~/Library/Preferences/UserDefaultsKitBenchmarks.*.plist
+```
+
+CI runs them with Swift 6.3 and 6.4 on macOS and on Linux, and puts the table in the job's summary.
 
 ## Using UserDefaultsKit in Your Project
 
@@ -147,7 +167,7 @@ To use this package in a SwiftPM project, add the following to your `Package.swi
 dependencies: [
     .package(
         url: "https://github.com/sinoru/swift-user-defaults-kit.git",
-        from: "1.0.0"
+        from: "1.1.0"
     ),
 ]
 ```
@@ -168,7 +188,7 @@ The Combine and SwiftUI surfaces each live behind a [package trait](https://gith
 ```swift
 .package(
     url: "https://github.com/sinoru/swift-user-defaults-kit.git",
-    from: "1.0.0",
+    from: "1.1.0",
     traits: ["Combine"]
 ),
 ```

@@ -1,8 +1,9 @@
 # Builds the package through SwiftPM across the Swift toolchains it claims to support, on every
-# target the runners can reach, and checks that every trait set a consumer can ask for still
-# compiles. The toolchain setup, the matrix and the build steps live in sinoru/github-workflows;
-# what is here is what is particular to this package. The Xcode build system takes a different
-# path through the same manifest, so Apple platform coverage lives in apple-platforms.yml.
+# target the runners can reach, checks that every trait set a consumer can ask for still
+# compiles, and runs the benchmarks on the two hosts the harness runs on. The toolchain setup,
+# the matrix and the build steps live in sinoru/github-workflows; what is here is what is
+# particular to this package. The Xcode build system takes a different path through the same
+# manifest, so Apple platform coverage lives in apple-platforms.yml.
 
 name: Swift
 
@@ -10,15 +11,16 @@ name: Swift
 # release-prep pair. Short-lived feature branches are covered by the pull_request trigger when
 # they open against develop, so listing them here would only run the same commit twice.
 #
-# And only for a change that can alter what is built here: the sources, the tests, the manifest
-# and what it resolved to, and this file. A commit to the README or the changelog runs nothing.
-# A branch filter and a path filter must both be satisfied.
+# And only for a change that can alter what is built here: the sources, the tests, the
+# benchmarks, the manifest and what it resolved to, and this file. A commit to the README or
+# the changelog runs nothing. A branch filter and a path filter must both be satisfied.
 on:
   push:
     branches: [main, develop, "release/**", "hotfix/**"]
     paths: &paths
       - Sources/**
       - Tests/**
+      - Benchmarks/**
       - Package.swift
       - Package.resolved
       - .github/workflows/swift.yml
@@ -43,9 +45,8 @@ jobs:
   # target, which imports Testing and so cannot build on the static Linux SDK, where no testing
   # library exists.
   #
-  # Swift Testing alone: the one XCTest suite, the performance measurements, is Darwin-only and
-  # skipped there by apple-platforms.yml, so `--disable-xctest` leaves nothing out here and
-  # keeps the corelibs runner from trapping on an empty list.
+  # Swift Testing alone, everywhere: no XCTest case is left in the package, and the corelibs
+  # runner traps on an empty list rather than reporting none.
   #
   # The targets, and why each is here. swift-corelibs-foundation has no KVO and posts
   # `didChangeNotification` only for whole-domain changes, so `UserDefaults.Observation` and
@@ -128,3 +129,48 @@ jobs:
           "--target UserDefaultsKit --traits SwiftUI",
           "--target UserDefaultsKit --disable-default-traits"
         ]
+
+  benchmarks-matrix:
+    uses: sinoru/github-workflows/.github/workflows/matrix.yml@main
+    with:
+      swift: '["6.3", "6.4"]'
+      targets: '["arm64-apple-macosx", "x86_64-unknown-linux-gnu"]'
+
+  # The benchmarks, on one runner of each kind: Darwin's `UserDefaults` and the corelibs one are
+  # two implementations, and a stored object is read by its CoreFoundation type on the first and
+  # by what `NSNumber` hands back on the second, so these two cover every path. They measure the
+  # library as it ships, built by the benchmark package's own manifest against the checkout
+  # above it, and put the table in the job's summary. Nothing fails on a number: a shared runner
+  # is noisy, and what the numbers are for is reading. `pipefail`, so that a benchmark that
+  # crashes fails the step through the tee.
+  #
+  # Without SwiftPM's sandbox, which on macOS cannot write to the preferences directory: the
+  # defaults daemon turns down a write from a process that could not have made it itself, and
+  # the writing benchmarks would be measuring the refusal. The benchmarks check for that and
+  # do not run rather than report it, but the harness still exits clean when they refuse, so
+  # it is the flag that keeps the table from coming out empty. Linux has no sandbox to
+  # disable, and the flag changes nothing there.
+  #
+  # The harness runs one benchmark at a time, each on a suite of its own, so the lost write the
+  # Linux test rows are serialized against has no second thread to come from here.
+  benchmarks:
+    needs: benchmarks-matrix
+    name: Benchmarks · ${{ matrix.os }} · Swift ${{ matrix.swift }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.benchmarks-matrix.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: sinoru/github-workflows/actions/setup-swift@main
+        with:
+          version: ${{ matrix.patch }}
+          developer-dir: ${{ matrix.developer_dir }}
+
+      - name: Run benchmarks
+        working-directory: Benchmarks
+        run: |
+          set -o pipefail
+          swift package --disable-sandbox benchmark --format markdown --no-progress --grouping metric | tee "$RUNNER_TEMP/benchmarks.md"
+          sed -n '/^## Baseline/,$p' "$RUNNER_TEMP/benchmarks.md" >> "$GITHUB_STEP_SUMMARY"
